@@ -1,8 +1,8 @@
 package com.gliwka.hyperscan.wrapper;
 
 import com.gliwka.hyperscan.jni.HyperscanNativeLoader;
-import com.gliwka.hyperscan.jni.hyperscan;
-import com.gliwka.hyperscan.jni.match_event_handler;
+import com.gliwka.hyperscan.jni.generated.hyperscan;
+import com.gliwka.hyperscan.jni.generated.match_event_handler;
 import com.gliwka.hyperscan.wrapper.mapping.ByteCharMapping;
 
 import java.io.Closeable;

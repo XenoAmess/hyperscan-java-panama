@@ -1,8 +1,8 @@
 package com.gliwka.hyperscan.wrapper;
 
 import com.gliwka.hyperscan.jni.HyperscanNativeLoader;
-import com.gliwka.hyperscan.jni.hyperscan;
-import com.gliwka.hyperscan.jni.hs_compile_error;
+import com.gliwka.hyperscan.jni.generated.hyperscan;
+import com.gliwka.hyperscan.jni.generated.hs_compile_error;
 import lombok.*;
 
 import java.lang.foreign.Arena;

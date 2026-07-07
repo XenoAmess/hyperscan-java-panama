@@ -38,7 +38,8 @@ jobs:
       - name: Build and install wrapper
         run: |
           set -euo pipefail
-          mvn -B install -pl wrapper -DskipTests
+          mvn -B install -pl wrapper -DskipTests \
+            -Dnative.classifier=linux-x86_64
 
       - name: Copy wrapper artifacts to staging deploy
         run: |

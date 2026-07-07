@@ -19,7 +19,7 @@
         <!-- Set by build.sh or CI; defaults to the current os-maven-plugin classifier -->
         <!-- env.DETECTED_PLATFORM is read directly via ${env.DETECTED_PLATFORM} -->
         <native.platform>${env.DETECTED_PLATFORM}</native.platform>
-        <native.resource.dir>com/xenoamess/hyperscan_panama/jni/${native.platform}</native.resource.dir>
+        <native.resource.dir>com/xenoamess/hyperscan_panama/jni/${env.DETECTED_PLATFORM}</native.resource.dir>
 
         <jextract.version>25-jextract+2-4</jextract.version>
         <jextract.dir>${project.build.directory}/jextract</jextract.dir>
@@ -68,7 +68,7 @@
                                 <argument>--output</argument>
                                 <argument>${jextract.output}</argument>
                                 <argument>--target-package</argument>
-                                <argument>com.gliwka.hyperscan.jni</argument>
+                                <argument>com.gliwka.hyperscan.jni.generated</argument>
                                 <argument>-I</argument>
                                 <argument>${project.basedir}/cppbuild/include</argument>
                                 <argument>${project.basedir}/src/main/java/com/gliwka/hyperscan/jni/hyperscan</argument>
@@ -85,7 +85,7 @@
                             <executable>bash</executable>
                             <arguments>
                                 <argument>${project.basedir}/fix-jextract-shared.sh</argument>
-                                <argument>${jextract.output}/com/gliwka/hyperscan/jni/hyperscan$shared.java</argument>
+                                <argument>${jextract.output}/com/gliwka/hyperscan/jni/generated/hyperscan$shared.java</argument>
                             </arguments>
                         </configuration>
                     </execution>
@@ -142,11 +142,20 @@
                 </executions>
             </plugin>
 
-            <!-- Create the classifier jar containing native libraries -->
+            <!-- Create the classifier jar containing native libraries and generated bindings -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
                 <executions>
+                    <execution>
+                        <id>default-jar</id>
+                        <configuration>
+                            <includes>
+                                <include>com/gliwka/hyperscan/jni/HyperscanNativeLoader.class</include>
+                                <include>com/xenoamess/**</include>
+                            </includes>
+                        </configuration>
+                    </execution>
                     <execution>
                         <id>native-jar</id>
                         <phase>package</phase>
@@ -156,6 +165,9 @@
                         <configuration>
                             <classifier>${native.platform}</classifier>
                             <classesDirectory>${project.build.outputDirectory}</classesDirectory>
+                            <includes>
+                                <include>**</include>
+                            </includes>
                             <archive>
                                 <manifestEntries>
                                     <Multi-Release>true</Multi-Release>
@@ -231,7 +243,7 @@
                                         <argument>--output</argument>
                                         <argument>${jextract.output}</argument>
                                         <argument>--target-package</argument>
-                                        <argument>com.gliwka.hyperscan.jni</argument>
+                                        <argument>com.gliwka.hyperscan.jni.generated</argument>
                                         <argument>-I</argument>
                                         <argument>${project.basedir}/cppbuild/include</argument>
                                         <argument>${project.basedir}/src/main/java/com/gliwka/hyperscan/jni/hyperscan</argument>

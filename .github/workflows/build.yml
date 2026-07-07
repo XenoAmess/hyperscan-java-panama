@@ -255,28 +255,12 @@ jobs:
           name: native-merged
           path: target/staging-deploy
 
-      - name: Download platform-specific native main jar
-        uses: actions/download-artifact@v4
-        with:
-          name: native-${{ matrix.platform }}
-          path: target/native-platform
-
       - name: Install merged native artifacts to local Maven
         run: |
           set -euo pipefail
           # Copy the staging repo into ~/.m2/repository
           mkdir -p ~/.m2/repository
           cp -r target/staging-deploy/com ~/.m2/repository/
-          # Overwrite the merged main JAR with the platform-specific main JAR
-          # because the jextract-generated classes are platform-specific.
-          VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
-          NATIVE_DIR="com/xenoamess/hyperscan_panama/hyperscan-java-panama-native/${VERSION}"
-          PLATFORM_MAIN_JAR=$(find target/native-platform -type f -name "hyperscan-java-panama-native-${VERSION}.jar" | head -n1)
-          if [ -z "$PLATFORM_MAIN_JAR" ]; then
-            echo "ERROR: platform-specific main JAR not found"
-            exit 1
-          fi
-          cp "$PLATFORM_MAIN_JAR" "$HOME/.m2/repository/${NATIVE_DIR}/"
           find ~/.m2/repository/com/xenoamess/hyperscan_panama/hyperscan-java-panama-native
 
       - name: Build and test wrapper

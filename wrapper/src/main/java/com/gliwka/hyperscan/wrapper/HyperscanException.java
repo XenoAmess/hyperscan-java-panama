@@ -1,7 +1,7 @@
 package com.gliwka.hyperscan.wrapper;
 
 import com.gliwka.hyperscan.jni.HyperscanNativeLoader;
-import com.gliwka.hyperscan.jni.hyperscan;
+import com.gliwka.hyperscan.jni.generated.hyperscan;
 
 /**
  * Exception thrown when a Hyperscan operation fails.

@@ -15,9 +15,10 @@
     <description>Java wrapper for the high-performance multiple regular expression library Hyperscan (Project Panama)</description>
 
     <properties>
-        <!-- Native platform classifier used for testing this build.
-             Set -Dnative.classifier=linux-x86_64 (or similar) to activate
-             the native-test profile and add a runtime classifier dependency. -->
+        <!-- Native platform classifier used for the wrapper build and tests.
+             Defaults to the DETECTED_PLATFORM environment variable so local builds
+             continue to work. Override with -Dnative.classifier=... in CI. -->
+        <native.classifier>${env.DETECTED_PLATFORM}</native.classifier>
     </properties>
 
     <dependencies>
@@ -25,6 +26,7 @@
             <groupId>com.xenoamess.hyperscan_panama</groupId>
             <artifactId>hyperscan-java-panama-native</artifactId>
             <version>${project.version}</version>
+            <classifier>${native.classifier}</classifier>
         </dependency>
 
         <dependency>
@@ -179,24 +181,4 @@
             </plugin>
         </plugins>
     </build>
-
-    <profiles>
-        <profile>
-            <id>native-test</id>
-            <activation>
-                <property>
-                    <name>native.classifier</name>
-                </property>
-            </activation>
-            <dependencies>
-                <dependency>
-                    <groupId>com.xenoamess.hyperscan_panama</groupId>
-                    <artifactId>hyperscan-java-panama-native</artifactId>
-                    <version>${project.version}</version>
-                    <classifier>${native.classifier}</classifier>
-                    <scope>runtime</scope>
-                </dependency>
-            </dependencies>
-        </profile>
-    </profiles>
 </project>
