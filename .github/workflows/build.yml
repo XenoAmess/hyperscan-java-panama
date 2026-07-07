@@ -266,5 +266,6 @@ jobs:
       - name: Build and test wrapper
         run: |
           set -euo pipefail
+          mvn -B install -N -DskipTests
           mvn -B verify -pl wrapper \
             -Dnative.classifier=${{ matrix.platform }}
