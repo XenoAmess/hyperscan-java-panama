@@ -75,6 +75,20 @@
                             </arguments>
                         </configuration>
                     </execution>
+                    <execution>
+                        <id>fix-jextract-shared</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>bash</executable>
+                            <arguments>
+                                <argument>${project.basedir}/fix-jextract-shared.sh</argument>
+                                <argument>${jextract.output}/com/gliwka/hyperscan/jni/hyperscan\$shared.java</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
 
