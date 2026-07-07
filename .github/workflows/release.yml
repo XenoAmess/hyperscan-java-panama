@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,30 +22,53 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Install native build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential cmake ninja-build libboost-dev ragel
+      - name: Download merged native artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: native-merged
+          path: target/staging-deploy
 
-      - name: Build native libraries
+      - name: Install native artifacts to local Maven
         run: |
-          cd native
-          DETECTED_PLATFORM=linux-x86_64-avx2 ./build.sh
+          set -euo pipefail
+          mkdir -p ~/.m2/repository
+          cp -r target/staging-deploy/com ~/.m2/repository/
+          find ~/.m2/repository/com/xenoamess/hyperscan_panama
+
+      - name: Build and install wrapper
+        run: |
+          set -euo pipefail
+          mvn -B install -pl wrapper -DskipTests
+
+      - name: Copy wrapper artifacts to staging deploy
+        run: |
+          set -euo pipefail
+          VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+          SRC="$HOME/.m2/repository/com/xenoamess/hyperscan_panama/hyperscan-java-panama/$VERSION"
+          DST="$PWD/target/staging-deploy/com/xenoamess/hyperscan_panama/hyperscan-java-panama/$VERSION"
+          mkdir -p "$DST"
+          cp "$SRC"/* "$DST/"
+          find target/staging-deploy -type f
+
+      - name: Set up JReleaser
+        uses: jreleaser/release-action@v2
+        with:
+          setup-only: true
+          version: 1.14.0
+
+      - name: Deploy to Maven Central
+        run: jreleaser deploy --debug
         env:
-          DETECTED_PLATFORM: linux-x86_64-avx2
+          JRELEASER_MAVENCENTRAL_USERNAME: ${{ secrets.CENTRAL_TOKEN_USERNAME }}
+          JRELEASER_MAVENCENTRAL_PASSWORD: ${{ secrets.CENTRAL_TOKEN_PASSWORD }}
+          JRELEASER_GPG_PUBLIC_KEY: ${{ secrets.PUBLIC_KEY }}
+          JRELEASER_GPG_SECRET_KEY: ${{ secrets.SIGN_KEY }}
+          JRELEASER_GPG_PASSPHRASE: ${{ secrets.SIGN_KEY_PASS }}
 
-      - name: Build and test
-        run: |
-          cd ${{ github.workspace }}
-          DETECTED_PLATFORM=linux-x86_64-avx2 mvn verify -pl wrapper -am
-        env:
-          DETECTED_PLATFORM: linux-x86_64-avx2
-
-      - name: Collect JARs
+      - name: Collect JARs for GitHub Release
         run: |
           mkdir -p release-jars
-          cp native/target/*.jar release-jars/ || true
-          cp wrapper/target/*.jar release-jars/ || true
+          cp target/staging-deploy/com/xenoamess/hyperscan_panama/*/*/*/*.jar release-jars/ || true
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

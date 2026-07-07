@@ -1,0 +1,25 @@
+project:
+  name: hyperscan-java-panama
+  description: Java bindings for the high-performance multiple regular expression library Hyperscan using Project Panama
+  links:
+    homepage: https://github.com/XenoAmess/hyperscan-java-panama
+  license: BSD-3-Clause
+  authors:
+    - XenoAmess
+
+deploy:
+  maven:
+    mavenCentral:
+      hyperscan-java-panama:
+        active: ALWAYS
+        url: https://central.sonatype.com/api/v1/publisher
+        snapshotSupported: true
+        applyMavenCentralRules: true
+        stagingRepositories:
+          - target/staging-deploy
+        verifyUrl: 'https://repo1.maven.org/maven2/{{path}}/{{filename}}'
+        namespace: com.xenoamess
+
+signing:
+  active: ALWAYS
+  mode: MEMORY

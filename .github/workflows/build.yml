@@ -3,12 +3,131 @@ name: Build and Test
 on:
   push:
     branches: [ main, master ]
+    tags: [ 'v*' ]
   pull_request:
     branches: [ main, master ]
 
 jobs:
-  build-linux-x86_64-avx2:
-    runs-on: ubuntu-latest
+  build-native:
+    name: Build native libs (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux
+            runner: ubuntu-24.04
+            platform: linux-x86_64-baseline
+          - os: linux
+            runner: ubuntu-24.04
+            platform: linux-x86_64-avx2
+          - os: linux
+            runner: ubuntu-24.04
+            platform: linux-x86_64
+          - os: linux
+            runner: ubuntu-24.04-arm
+            platform: linux-arm64-baseline
+          - os: linux
+            runner: ubuntu-24.04-arm
+            platform: linux-arm64
+          - os: windows
+            runner: windows-latest
+            platform: windows-x86_64-baseline
+          - os: windows
+            runner: windows-latest
+            platform: windows-x86_64
+    env:
+      DETECTED_PLATFORM: ${{ matrix.platform }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build native binaries in centos container
+        if: matrix.os == 'linux'
+        uses: docker://ghcr.io/gliwka/centos7-toolchain:main@sha256:e6cf17223408bb4d1314be547d74b23d04bcf6480d2fe23822fb672a52775f76
+        with:
+          args: '"cd native && ./build.sh"'
+
+      - name: Set up Python (Windows)
+        if: matrix.os == 'windows'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install ragel (Windows MSYS2)
+        if: matrix.os == 'windows'
+        shell: bash
+        run: |
+          C:/msys64/usr/bin/bash.exe -lc "pacman -Sy --noconfirm mingw-w64-ucrt-x86_64-ragel"
+
+      - name: Setup MSVC dev command prompt
+        if: matrix.os == 'windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Build native binaries on Windows
+        if: matrix.os == 'windows'
+        shell: bash
+        run: |
+          export PATH="/c/msys64/ucrt64/bin:/c/msys64/usr/bin:$PATH"
+          cd native
+          ./build-windows.sh
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Install native module to local Maven
+        run: |
+          set -euo pipefail
+          mvn -B install -pl native -DskipTests
+
+      - name: Verify ISA per variant (Linux x86_64)
+        if: matrix.os == 'linux' && startsWith(matrix.platform, 'linux-x86_64')
+        run: |
+          set -euo pipefail
+          PLATFORM="${{ matrix.platform }}"
+          find ~/.m2/repository/com/xenoamess/hyperscan_panama/hyperscan-java-panama-native -path "*${PLATFORM}*" -name '*.so' | while read -r SO; do
+            echo "Inspecting $SO"
+            case "$PLATFORM" in
+              linux-x86_64-baseline)
+                if objdump -d "$SO" | grep -E '^[[:space:]]+[0-9a-f]+:[[:space:]]+[0-9a-f ]+[[:space:]]+v' > /dev/null 2>&1; then
+                  echo "FAIL: $SO contains VEX/EVEX (AVX/AVX2/AVX-512) instructions"
+                  objdump -d "$SO" | grep -nE '^[[:space:]]+[0-9a-f]+:[[:space:]]+[0-9a-f ]+[[:space:]]+v' | head -10
+                  exit 1
+                fi
+                ;;
+              linux-x86_64-avx2)
+                if objdump -d "$SO" | grep -E '^[[:space:]]+[0-9a-f]+:[[:space:]]+62[[:space:]]' > /dev/null 2>&1; then
+                  echo "FAIL: $SO contains EVEX (AVX-512) instructions"
+                  objdump -d "$SO" | grep -nE '^[[:space:]]+[0-9a-f]+:[[:space:]]+62[[:space:]]' | head -10
+                  exit 1
+                fi
+                ;;
+              linux-x86_64)
+                ;;
+            esac
+          done
+          echo "PASS: ISA check passed for $PLATFORM"
+
+      - name: Upload native Maven artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.platform }}
+          path: ~/.m2/repository/com/xenoamess/hyperscan_panama/hyperscan-java-panama-native
+          include-hidden-files: true
+
+  package-native:
+    name: Package unified native jars
+    needs: build-native
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -20,35 +139,132 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Install native build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential cmake ninja-build libboost-dev ragel
+      - name: Download all native artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: target/variant-m2
+          merge-multiple: false
 
-      - name: Build native libraries
+      - name: Merge variants into unified classifier jars
         run: |
-          cd native
-          DETECTED_PLATFORM=linux-x86_64-avx2 ./build.sh
-        env:
-          DETECTED_PLATFORM: linux-x86_64-avx2
+          set -euo pipefail
+          VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+          NATIVE_DIR="com/xenoamess/hyperscan_panama/hyperscan-java-panama-native/${VERSION}"
+          STAGE_DIR="${PWD}/target/staging-deploy/${NATIVE_DIR}"
+          mkdir -p "$STAGE_DIR"
+
+          # Copy common artifacts (identical across variants) from the AVX-512 build.
+          MAIN_JAR=$(find target/variant-m2 -type f -name "hyperscan-java-panama-native-${VERSION}.jar" | head -n1)
+          SOURCES_JAR=$(find target/variant-m2 -type f -name "hyperscan-java-panama-native-${VERSION}-sources.jar" | head -n1)
+          JAVADOC_JAR=$(find target/variant-m2 -type f -name "hyperscan-java-panama-native-${VERSION}-javadoc.jar" | head -n1)
+          POM=$(find target/variant-m2 -type f -name "hyperscan-java-panama-native-${VERSION}.pom" | head -n1)
+          for F in "$MAIN_JAR" "$SOURCES_JAR" "$JAVADOC_JAR" "$POM"; do
+            if [ -z "$F" ] || [ ! -f "$F" ]; then
+              echo "ERROR: missing common artifact: $F"
+              exit 1
+            fi
+            cp "$F" "$STAGE_DIR/"
+          done
+
+          # Helper: merge platform family classifiers into a single classifier jar.
+          merge_family() {
+            local output_name="$1"
+            shift
+            local jars=("$@")
+            local found=0
+            for j in "${jars[@]}"; do
+              if [ -f "$j" ]; then
+                found=1
+                break
+              fi
+            done
+            if [ "$found" -eq 0 ]; then
+              echo "ERROR: no classifier jars for $output_name"
+              exit 1
+            fi
+
+            local merge_dir=$(mktemp -d)
+            for j in "${jars[@]}"; do
+              if [ -f "$j" ]; then
+                echo "Overlaying $j into $output_name"
+                unzip -q -o "$j" -d "$merge_dir"
+              fi
+            done
+            (cd "$merge_dir" && zip -r "$STAGE_DIR/$output_name" .)
+            rm -rf "$merge_dir"
+          }
+
+          # Merge linux-x86_64 family.
+          merge_family "hyperscan-java-panama-native-${VERSION}-linux-x86_64.jar" \
+            $(find target/variant-m2 -type f -name "hyperscan-java-panama-native-${VERSION}-linux-x86_64.jar" | head -n1) \
+            $(find target/variant-m2 -type f -name "hyperscan-java-panama-native-${VERSION}-linux-x86_64-avx2.jar" | head -n1) \
+            $(find target/variant-m2 -type f -name "hyperscan-java-panama-native-${VERSION}-linux-x86_64-baseline.jar" | head -n1)
+
+          # Merge linux-arm64 family.
+          merge_family "hyperscan-java-panama-native-${VERSION}-linux-arm64.jar" \
+            $(find target/variant-m2 -type f -name "hyperscan-java-panama-native-${VERSION}-linux-arm64.jar" | head -n1) \
+            $(find target/variant-m2 -type f -name "hyperscan-java-panama-native-${VERSION}-linux-arm64-baseline.jar" | head -n1)
+
+          # Merge windows-x86_64 family.
+          merge_family "hyperscan-java-panama-native-${VERSION}-windows-x86_64.jar" \
+            $(find target/variant-m2 -type f -name "hyperscan-java-panama-native-${VERSION}-windows-x86_64.jar" | head -n1) \
+            $(find target/variant-m2 -type f -name "hyperscan-java-panama-native-${VERSION}-windows-x86_64-baseline.jar" | head -n1)
+
+          echo "Staging repository prepared at target/staging-deploy"
+          find target/staging-deploy -type f
+
+      - name: Upload merged native artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-merged
+          path: target/staging-deploy
+
+  test-wrapper:
+    name: Test wrapper (${{ matrix.platform }})
+    needs: package-native
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform: linux-x86_64
+          - runner: ubuntu-24.04-arm
+            platform: linux-arm64
+          - runner: windows-latest
+            platform: windows-x86_64
+    env:
+      DETECTED_PLATFORM: ${{ matrix.platform }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Download merged native artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: native-merged
+          path: target/staging-deploy
+
+      - name: Install merged native artifacts to local Maven
+        run: |
+          set -euo pipefail
+          # Copy the staging repo into ~/.m2/repository
+          mkdir -p ~/.m2/repository
+          cp -r target/staging-deploy/com ~/.m2/repository/
+          find ~/.m2/repository/com/xenoamess/hyperscan_panama/hyperscan-java-panama-native
 
       - name: Build and test wrapper
         run: |
-          cd ${{ github.workspace }}
-          DETECTED_PLATFORM=linux-x86_64-avx2 mvn verify -pl wrapper -am
-        env:
-          DETECTED_PLATFORM: linux-x86_64-avx2
-
-      - name: Upload native artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: native-linux-x86_64-avx2
-          path: |
-            native/target/*.jar
-
-      - name: Upload wrapper artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: wrapper-jars
-          path: |
-            wrapper/target/*.jar
+          set -euo pipefail
+          mvn -B verify -pl wrapper \
+            -Dnative.classifier=${{ matrix.platform }}
