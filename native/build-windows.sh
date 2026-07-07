@@ -60,7 +60,7 @@ windows-x86_64|windows-x86_64-baseline)
       ;;
   esac
 
-  cmake -G "Visual Studio 17 2022" -A x64 \
+  cmake -G Ninja \
         -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX="$(pwd)/.." \
@@ -75,7 +75,7 @@ windows-x86_64|windows-x86_64-baseline)
         -DCMAKE_CXX_FLAGS="$ARCH_FLAGS /EHsc" \
         .
 
-  cmake --build . --config Release --target install -- -maxcpucount:$THREADS
+  cmake --build . --config Release --target install -- -j $THREADS
 
   # CMake installs import libraries into lib/ but the runtime DLLs into bin/.
   # Copy the DLLs alongside the import libraries so the loader can find them.

@@ -57,11 +57,11 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install ragel (Windows MSYS2)
+      - name: Install ragel and ninja (Windows MSYS2)
         if: matrix.os == 'windows'
         shell: bash
         run: |
-          C:/msys64/usr/bin/bash.exe -lc "pacman -Sy --noconfirm mingw-w64-ucrt-x86_64-ragel"
+          C:/msys64/usr/bin/bash.exe -lc "pacman -Sy --noconfirm mingw-w64-ucrt-x86_64-ragel mingw-w64-ucrt-x86_64-ninja"
 
       - name: Setup MSVC dev command prompt
         if: matrix.os == 'windows'
