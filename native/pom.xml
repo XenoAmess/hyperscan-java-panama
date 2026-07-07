@@ -1,0 +1,191 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.xenoamess.hyperscan_panama</groupId>
+        <artifactId>hyperscan-java-panama-parent</artifactId>
+        <version>5.4.12-1.0.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>hyperscan-java-panama-native</artifactId>
+    <name>hyperscan-java-panama-native</name>
+    <description>Native libraries and Project Panama bindings for hyperscan-java-panama</description>
+
+    <properties>
+        <!-- The platform variant being built, e.g. linux-x86_64-baseline -->
+        <!-- Set by build.sh or CI; defaults to the current os-maven-plugin classifier -->
+        <!-- env.DETECTED_PLATFORM is read directly via ${env.DETECTED_PLATFORM} -->
+        <native.platform>${env.DETECTED_PLATFORM}</native.platform>
+        <native.resource.dir>com/xenoamess/hyperscan_panama/jni/${native.platform}</native.resource.dir>
+
+        <jextract.version>25-jextract+2-4</jextract.version>
+        <jextract.dir>${project.build.directory}/jextract</jextract.dir>
+        <jextract.bin>${jextract.dir}/bin/jextract</jextract.bin>
+        <jextract.output>${project.build.directory}/generated-sources</jextract.output>
+    </properties>
+
+    <build>
+        <extensions>
+            <extension>
+                <groupId>kr.motd.maven</groupId>
+                <artifactId>os-maven-plugin</artifactId>
+                <version>1.7.1</version>
+            </extension>
+        </extensions>
+        <plugins>
+            <!-- Download jextract if not present -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>download-jextract</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>${project.basedir}/download-jextract.sh</executable>
+                            <arguments>
+                                <argument>${jextract.version}</argument>
+                                <argument>${jextract.dir}</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>run-jextract</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>${jextract.bin}</executable>
+                            <arguments>
+                                <argument>--output</argument>
+                                <argument>${jextract.output}</argument>
+                                <argument>--target-package</argument>
+                                <argument>com.gliwka.hyperscan.jni</argument>
+                                <argument>-I</argument>
+                                <argument>${project.basedir}/cppbuild/include</argument>
+                                <argument>${project.basedir}/src/main/java/com/gliwka/hyperscan/jni/hyperscan</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Add generated sources to the compile path -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>add-source</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>add-source</goal>
+                        </goals>
+                        <configuration>
+                            <sources>
+                                <source>${jextract.output}</source>
+                            </sources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Copy native libraries into the classpath resources so they can be loaded at runtime -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.2.0</version>
+                <executions>
+                    <execution>
+                        <id>copy-native-libs</id>
+                        <phase>process-resources</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <mkdir dir="${project.build.outputDirectory}/${native.resource.dir}"/>
+                                <copy todir="${project.build.outputDirectory}/${native.resource.dir}">
+                                    <fileset dir="${project.basedir}/cppbuild/lib">
+                                        <include name="libhs*"/>
+                                        <include name="hs*"/>
+                                        <include name="*.so"/>
+                                        <include name="*.dylib"/>
+                                        <include name="*.dll"/>
+                                    </fileset>
+                                </copy>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Create the classifier jar containing native libraries -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>native-jar</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                        <configuration>
+                            <classifier>${native.platform}</classifier>
+                            <classesDirectory>${project.build.outputDirectory}</classesDirectory>
+                            <archive>
+                                <manifestEntries>
+                                    <Multi-Release>true</Multi-Release>
+                                </manifestEntries>
+                            </archive>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-source-plugin</artifactId>
+                <version>3.3.1</version>
+                <executions>
+                    <execution>
+                        <id>attach-sources</id>
+                        <goals>
+                            <goal>jar-no-fork</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <version>3.12.0</version>
+                <configuration>
+                    <show>public</show>
+                    <nohelp>true</nohelp>
+                    <header>hyperscan-java-panama-native, ${project.version}</header>
+                    <footer>hyperscan-java-panama-native, ${project.version}</footer>
+                    <doctitle>hyperscan-java-panama-native, ${project.version}</doctitle>
+                    <doclint>none</doclint>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>attach-javadocs</id>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

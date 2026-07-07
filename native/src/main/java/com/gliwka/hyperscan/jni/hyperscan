@@ -1,0 +1,13 @@
+/*
+ * Aggregated header for jextract to generate Panama bindings from the
+ * Vectorscan/Hyperscan public C API.
+ */
+#ifndef HYPERSCAN_JNI_H
+#define HYPERSCAN_JNI_H
+
+#include <hs/hs_common.h>
+#include <hs/hs_compile.h>
+#include <hs/hs_runtime.h>
+#include <hs/hs.h>
+
+#endif

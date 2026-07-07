@@ -1,0 +1,54 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-linux-x86_64-avx2:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build libboost-dev ragel
+
+      - name: Build native libraries
+        run: |
+          cd native
+          DETECTED_PLATFORM=linux-x86_64-avx2 ./build.sh
+        env:
+          DETECTED_PLATFORM: linux-x86_64-avx2
+
+      - name: Build and test wrapper
+        run: |
+          cd ${{ github.workspace }}
+          DETECTED_PLATFORM=linux-x86_64-avx2 mvn verify -pl wrapper -am
+        env:
+          DETECTED_PLATFORM: linux-x86_64-avx2
+
+      - name: Upload native artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-linux-x86_64-avx2
+          path: |
+            native/target/*.jar
+
+      - name: Upload wrapper artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wrapper-jars
+          path: |
+            wrapper/target/*.jar
