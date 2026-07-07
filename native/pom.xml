@@ -189,4 +189,45 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <profile>
+            <id>windows</id>
+            <activation>
+                <os>
+                    <family>windows</family>
+                </os>
+            </activation>
+            <properties>
+                <jextract.bin>${jextract.dir}/bin/jextract.bat</jextract.bin>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>exec-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>run-jextract</id>
+                                <configuration>
+                                    <executable>cmd</executable>
+                                    <arguments>
+                                        <argument>/c</argument>
+                                        <argument>${jextract.bin}</argument>
+                                        <argument>--output</argument>
+                                        <argument>${jextract.output}</argument>
+                                        <argument>--target-package</argument>
+                                        <argument>com.gliwka.hyperscan.jni</argument>
+                                        <argument>-I</argument>
+                                        <argument>${project.basedir}/cppbuild/include</argument>
+                                        <argument>${project.basedir}/src/main/java/com/gliwka/hyperscan/jni/hyperscan</argument>
+                                    </arguments>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>
