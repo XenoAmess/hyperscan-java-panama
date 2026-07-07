@@ -48,8 +48,9 @@
                             <goal>exec</goal>
                         </goals>
                         <configuration>
-                            <executable>${project.basedir}/download-jextract.sh</executable>
+                            <executable>bash</executable>
                             <arguments>
+                                <argument>${project.basedir}/download-jextract.sh</argument>
                                 <argument>${jextract.version}</argument>
                                 <argument>${jextract.dir}</argument>
                             </arguments>
