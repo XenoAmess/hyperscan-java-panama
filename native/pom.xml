@@ -85,7 +85,7 @@
                             <executable>bash</executable>
                             <arguments>
                                 <argument>${project.basedir}/fix-jextract-shared.sh</argument>
-                                <argument>${jextract.output}/com/gliwka/hyperscan/jni/hyperscan\$shared.java</argument>
+                                <argument>${jextract.output}/com/gliwka/hyperscan/jni/hyperscan$shared.java</argument>
                             </arguments>
                         </configuration>
                     </execution>
