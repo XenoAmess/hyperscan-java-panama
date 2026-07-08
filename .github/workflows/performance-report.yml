@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-24.04
     if: github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch'
     env:
-      BENCHMARK_PLATFORM: linux-x86_64
+      DETECTED_PLATFORM: linux-x86_64
       BENCHMARK_OUTPUT_DIR: _site
     steps:
       - name: Checkout
@@ -69,10 +69,16 @@ jobs:
           cp -r target/staging-deploy/com ~/.m2/repository/
           find ~/.m2/repository/com/xenoamess/hyperscan_panama
 
+      - name: Install parent and wrapper
+        run: |
+          set -euo pipefail
+          mvn -B install -N -DskipTests
+          mvn -B install -pl wrapper -DskipTests
+
       - name: Run performance tests
         run: |
           set -euo pipefail
-          mvn -B test -pl performance -Dnative.classifier=${BENCHMARK_PLATFORM}
+          mvn -B test -pl performance
 
       - name: Generate HTML/SVG report
         run: |
