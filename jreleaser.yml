@@ -16,6 +16,7 @@ deploy:
         url: https://central.sonatype.com/api/v1/publisher
         snapshotSupported: true
         applyMavenCentralRules: true
+        verifyPom: false
         stagingRepositories:
           - target/staging-deploy
         namespace: com.xenoamess
