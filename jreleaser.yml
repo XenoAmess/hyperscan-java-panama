@@ -23,3 +23,8 @@ deploy:
 signing:
   active: ALWAYS
   mode: MEMORY
+
+release:
+  github:
+    hyperscan-java-panama:
+      active: NEVER
