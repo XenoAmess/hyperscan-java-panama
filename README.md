@@ -1,7 +1,10 @@
 # hyperscan-java-panama
 
 [![Build and Test](https://github.com/XenoAmess/hyperscan-java-panama/actions/workflows/build.yml/badge.svg)](https://github.com/XenoAmess/hyperscan-java-panama/actions/workflows/build.yml)
-[![Performance Report](https://img.shields.io/badge/Performance%20Report-View-blue)](https://xenoamess.github.io/hyperscan-java-panama)
+
+📊 **[View latest performance report](https://xenoamess.github.io/hyperscan-java-panama/)**
+
+[![Latest performance summary](https://xenoamess.github.io/hyperscan-java-panama/summary.svg)](https://xenoamess.github.io/hyperscan-java-panama/)
 
 [English](README.md) | [中文](README_CN.md)
 
