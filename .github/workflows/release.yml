@@ -44,6 +44,7 @@ jobs:
       - name: Build and install wrapper
         run: |
           set -euo pipefail
+          mvn -B install -N -DskipTests
           mvn -B install -pl wrapper -DskipTests \
             -Dnative.classifier=linux-x86_64
 
