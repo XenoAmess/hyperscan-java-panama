@@ -18,6 +18,7 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -376,7 +377,7 @@ class BenchmarkSuiteTest {
         Random random = new Random(2027);
         for (int i = 5; i < count; i++) {
             String token = String.format("%08x", random.nextInt());
-            expressions.add(new Expression("TOKEN_" + token, ExpressionFlag.SOM_LEFTMOST, i));
+            expressions.add(new Expression(Pattern.quote("TOKEN_" + token), ExpressionFlag.SOM_LEFTMOST, i));
         }
         return expressions;
     }
@@ -413,7 +414,7 @@ class BenchmarkSuiteTest {
         Random random = new Random(2027);
         for (int i = 5; i < count; i++) {
             String token = String.format("%08x", random.nextInt());
-            expressions.add(new Expression("TOKEN_" + token, ExpressionFlag.SOM_LEFTMOST, i));
+            expressions.add(new Expression(Pattern.quote("TOKEN_" + token), ExpressionFlag.SOM_LEFTMOST, i));
         }
         return expressions;
     }
