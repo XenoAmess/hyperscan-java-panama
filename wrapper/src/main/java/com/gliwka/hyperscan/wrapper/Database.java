@@ -251,29 +251,29 @@ public class Database implements Closeable {
         }
         expressionsDataOut.flush();
 
-        // Serialize the database into a contiguous native memory block
+        // Serialize the database into a contiguous native memory block. The native
+        // library allocates the buffer and returns both the pointer and the length
+        // via output parameters (char **bytes, size_t *length).
         MemorySegment database = state.getDatabase();
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment dbSize = arena.allocate(hyperscan.size_t);
-            int hsError = hyperscan.hs_database_size(database, dbSize);
-            if (hsError != 0) {
-                throw HyperscanException.hsErrorToException(hsError);
-            }
-            long dbLength = dbSize.get(hyperscan.size_t, 0);
-
+            MemorySegment bytesOut = arena.allocate(ValueLayout.ADDRESS);
             MemorySegment size = arena.allocate(hyperscan.size_t);
-            size.set(hyperscan.size_t, 0, dbLength);
-            MemorySegment bytes = arena.allocate(dbLength);
-            hsError = hyperscan.hs_serialize_database(database, bytes, size);
+            int hsError = hyperscan.hs_serialize_database(database, bytesOut, size);
             if (hsError != 0) {
                 throw HyperscanException.hsErrorToException(hsError);
             }
+
             long length = size.get(hyperscan.size_t, 0);
+            MemorySegment bytes = bytesOut.get(ValueLayout.ADDRESS, 0).reinterpret(length);
 
             DataOutputStream databaseDataOut = new DataOutputStream(databaseOut);
             databaseDataOut.writeInt((int) length);
             databaseDataOut.write(bytes.asSlice(0, length).toArray(ValueLayout.JAVA_BYTE));
             databaseDataOut.flush();
+
+            // The library allocated the serialized buffer with its default allocator;
+            // free it with the standard C free().
+            hyperscan.free(bytes);
         }
     }
 

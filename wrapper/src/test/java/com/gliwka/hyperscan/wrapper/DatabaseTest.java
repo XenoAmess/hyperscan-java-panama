@@ -159,7 +159,6 @@ class DatabaseTest {
     }
 
     @Test
-    @Disabled("Vectorscan hs_serialize_database rejects NULL bytes buffer; deserialization also fails upstream")
     void testSerializationDeserializationRoundtrip() throws CompileErrorException, IOException, ClassNotFoundException {
         // 1. Setup expressions with IDs and flags
         List<Expression> expressionsWithIds = Arrays.asList(
