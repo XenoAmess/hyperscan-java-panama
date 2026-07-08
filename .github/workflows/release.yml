@@ -52,10 +52,17 @@ jobs:
         run: |
           set -euo pipefail
           VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+          # Copy parent POM
+          PARENT_SRC="$HOME/.m2/repository/com/xenoamess/hyperscan_panama/hyperscan-java-panama-parent/$VERSION"
+          PARENT_DST="$PWD/target/staging-deploy/com/xenoamess/hyperscan_panama/hyperscan-java-panama-parent/$VERSION"
+          mkdir -p "$PARENT_DST"
+          cp "$PARENT_SRC"/*.pom "$PARENT_DST/"
+          # Copy wrapper
           SRC="$HOME/.m2/repository/com/xenoamess/hyperscan_panama/hyperscan-java-panama/$VERSION"
           DST="$PWD/target/staging-deploy/com/xenoamess/hyperscan_panama/hyperscan-java-panama/$VERSION"
           mkdir -p "$DST"
           cp "$SRC"/* "$DST/"
+          # Copy native module (already from merged download)
           find target/staging-deploy -type f
 
       - name: Deploy to Maven Central
