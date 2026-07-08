@@ -7,7 +7,7 @@
 set -eu
 set -o pipefail
 
-SHARED_FILE="${1:-target/generated-sources/com/gliwka/hyperscan/jni/hyperscan$shared.java}"
+SHARED_FILE="${1:-target/generated-sources/com/xenoamess/hyperscan_panama/jni/hyperscan$shared.java}"
 PLATFORM="${DETECTED_PLATFORM:-unknown}"
 
 if [ ! -f "$SHARED_FILE" ]; then

@@ -8,7 +8,7 @@
 - **Build**: Maven 3.9+ multi-module project.
 - **Modules**:
   - `native`: native library build, jextract bindings, `HyperscanNativeLoader`.
-  - `wrapper`: public Java API (`com.gliwka.hyperscan.wrapper`).
+  - `wrapper`: public Java API (`com.xenoamess.hyperscan_panama.wrapper`).
   - `performance`: benchmarks and smoke tests.
 - **Native variants**: Linux x86_64 (baseline / AVX2 / AVX-512), Linux ARM64 (baseline / SVE2), Windows x86_64 (baseline / AVX2).
 
@@ -57,7 +57,7 @@ DETECTED_PLATFORM=linux-x86_64-avx2 mvn test -pl wrapper,performance -am
 - Match existing style in the file being edited.
 - Do not add unnecessary comments unless explicitly requested.
 - Never commit secrets or API keys.
-- Keep public API in `com.gliwka.hyperscan.wrapper` compatible with the original `hyperscan-java` project where possible.
+- Keep public API in `com.xenoamess.hyperscan_panama.wrapper` compatible with the original `hyperscan-java` project where possible.
 
 ## Commit & Push Policy
 

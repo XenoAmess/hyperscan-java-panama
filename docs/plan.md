@@ -35,7 +35,7 @@
 │   ├── build.sh
 │   ├── build-windows.sh
 │   ├── download-jextract.sh
-│   ├── src/main/java/com/gliwka/hyperscan/jni/
+│   ├── src/main/java/com/xenoamess/hyperscan_panama/jni/
 │   │   ├── HyperscanNativeLoader.java
 │   │   └── hyperscan.h                     # 聚合头，供 jextract 使用
 │   └── src/main/resources/
@@ -44,7 +44,7 @@
 └── wrapper/                                # hyperscan-java-panama
     ├── pom.xml
     └── src/
-        ├── main/java/com/gliwka/hyperscan/
+        ├── main/java/com/xenoamess/hyperscan_panama/
         │   ├── jni/                        # jextract 生成代码
         │   ├── wrapper/
         │   │   ├── Database.java
@@ -67,7 +67,7 @@
         │   │       ├── ShortMapping.java
         │   │       └── IntMapping.java
         │   └── util/PatternFilter.java
-        └── test/java/com/gliwka/hyperscan/
+        └── test/java/com/xenoamess/hyperscan_panama/
             ├── wrapper/
             │   ├── DatabaseTest.java
             │   ├── ScannerTest.java
@@ -91,8 +91,8 @@
 
 **包结构保持不变**（以兼容现有 API）：
 
-- 上层 API：`com.gliwka.hyperscan.wrapper`、`com.gliwka.hyperscan.util`
-- 原生绑定：`com.gliwka.hyperscan.jni`（jextract 生成 `hyperscan.java`）
+- 上层 API：`com.xenoamess.hyperscan_panama.wrapper`、`com.xenoamess.hyperscan_panama.util`
+- 原生绑定：`com.xenoamess.hyperscan_panama.jni`（jextract 生成 `hyperscan.java`）
 
 Maven groupId 与 Java 包名不一致是允许的，目的在于保持用户 `import` 兼容。
 
@@ -111,7 +111,7 @@ Maven groupId 与 Java 包名不一致是允许的，目的在于保持用户 `i
 
 ### 5.2 jextract 绑定生成
 
-在 `native/src/main/java/com/gliwka/hyperscan/jni/hyperscan.h` 中聚合头：
+在 `native/src/main/java/com/xenoamess/hyperscan_panama/jni/hyperscan.h` 中聚合头：
 
 ```c
 #include <hs/hs_common.h>
@@ -127,12 +127,12 @@ Maven groupId 与 Java 包名不一致是允许的，目的在于保持用户 `i
    ```bash
    target/jextract/bin/jextract \
      --output target/generated-sources \
-     --target-package com.gliwka.hyperscan.jni \
+     --target-package com.xenoamess.hyperscan_panama.jni \
      -I cppbuild/include \
-     src/main/java/com/gliwka/hyperscan/jni/hyperscan.h
+     src/main/java/com/xenoamess/hyperscan_panama/jni/hyperscan.h
    ```
 3. `build-helper-maven-plugin` 把 `target/generated-sources` 加入 source root。
-4. 生成 `com/gliwka/hyperscan/jni/hyperscan.java`，包含所有常量、函数、struct 布局。
+4. 生成 `com/xenoamess/hyperscan_panama/jni/hyperscan.java`，包含所有常量、函数、struct 布局。
 
 ### 5.3 HyperscanNativeLoader
 

@@ -11,7 +11,7 @@ High-performance Java bindings for [Hyperscan](https://github.com/VectorCamp/vec
 
 - **Project Panama FFM** — no native JNI or JavaCPP required.
 - **Multi-platform native binaries** — Linux x86_64 (baseline / AVX2 / AVX-512), Linux ARM64 (baseline / SVE2), Windows x86_64 (baseline / AVX2).
-- **Compatible API** — the public `com.gliwka.hyperscan.wrapper` API is preserved.
+- **Compatible API** — the public `com.xenoamess.hyperscan_panama.wrapper` API is preserved.
 - **Automatic CPU feature detection** — the loader selects the best available native ISA variant at runtime.
 
 ## Requirements
@@ -33,7 +33,7 @@ Add the dependency to your `pom.xml`:
 ```
 
 ```java
-import com.gliwka.hyperscan.wrapper.*;
+import com.xenoamess.hyperscan_panama.wrapper.*;
 
 public class Example {
     public static void main(String[] args) throws Exception {
@@ -86,6 +86,10 @@ mvn test -pl performance -am -Dnative.classifier=${DETECTED_PLATFORM}
 ```
 
 
+## Acknowledgments
+
+This project is a fork and continuation of [hyperscan-java](https://github.com/gliwka/hyperscan-java) originally created by [Matthias Gliwka](https://github.com/gliwka). The original wrapper API design and project structure were preserved as much as possible while migrating from JavaCPP to Project Panama FFM.
+
 ## License
 
-3-Clause BSD License.
+3-Clause BSD License. See [LICENSE](LICENSE) for details.

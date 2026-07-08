@@ -38,7 +38,7 @@ MemorySegment bytes = bytesOut.get(ValueLayout.ADDRESS, 0).reinterpret(length);
 hyperscan.free(bytes);
 ```
 
-完整代码：`wrapper/src/main/java/com/gliwka/hyperscan/wrapper/Database.java:save()`。
+完整代码：`wrapper/src/main/java/com/xenoamess/hyperscan_panama/wrapper/Database.java:save()`。
 
 ### 2. `hs_deserialize_database`：`hs_database_t **db`
 
@@ -57,7 +57,7 @@ database = database.reinterpret(Long.MAX_VALUE);
 return new Database(database, expressions);
 ```
 
-完整代码：`wrapper/src/main/java/com/gliwka/hyperscan/wrapper/Database.java:load()`。
+完整代码：`wrapper/src/main/java/com/xenoamess/hyperscan_panama/wrapper/Database.java:load()`。
 
 ### 3. `hs_compile_multi`：`hs_database_t **db` + `hs_compile_error_t **error`
 

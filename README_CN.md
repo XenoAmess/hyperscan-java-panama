@@ -11,7 +11,7 @@
 
 - **Project Panama FFM** — 无需 native JNI 或 JavaCPP。
 - **多平台原生二进制** — Linux x86_64（baseline / AVX2 / AVX-512）、Linux ARM64（baseline / SVE2）、Windows x86_64（baseline / AVX2）。
-- **兼容 API** — 保留 `com.gliwka.hyperscan.wrapper` 公开 API。
+- **兼容 API** — 保留 `com.xenoamess.hyperscan_panama.wrapper` 公开 API。
 - **自动 CPU 特性检测** — 加载器在运行时自动选择最合适的原生 ISA 变体。
 
 ## 环境要求
@@ -33,7 +33,7 @@
 ```
 
 ```java
-import com.gliwka.hyperscan.wrapper.*;
+import com.xenoamess.hyperscan_panama.wrapper.*;
 
 public class Example {
     public static void main(String[] args) throws Exception {
@@ -86,6 +86,10 @@ mvn test -pl performance -am -Dnative.classifier=${DETECTED_PLATFORM}
 ```
 
 
+## 致谢
+
+本项目是 [hyperscan-java](https://github.com/gliwka/hyperscan-java) 的分支与延续，原作者为 [Matthias Gliwka](https://github.com/gliwka)。在从 JavaCPP 迁移到 Project Panama FFM 的过程中，我们尽可能保留了原项目的 wrapper API 设计与项目结构。
+
 ## 许可证
 
-3-Clause BSD License。
+3-Clause BSD License。详见 [LICENSE](LICENSE)。

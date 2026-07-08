@@ -68,10 +68,10 @@
                                 <argument>--output</argument>
                                 <argument>${jextract.output}</argument>
                                 <argument>--target-package</argument>
-                                <argument>com.gliwka.hyperscan.jni.generated</argument>
+                                <argument>com.xenoamess.hyperscan_panama.jni.generated</argument>
                                 <argument>-I</argument>
                                 <argument>${project.basedir}/cppbuild/include</argument>
-                                <argument>${project.basedir}/src/main/java/com/gliwka/hyperscan/jni/hyperscan</argument>
+                                <argument>${project.basedir}/src/main/java/com/xenoamess/hyperscan_panama/jni/hyperscan</argument>
                             </arguments>
                         </configuration>
                     </execution>
@@ -85,7 +85,7 @@
                             <executable>bash</executable>
                             <arguments>
                                 <argument>${project.basedir}/fix-jextract-shared.sh</argument>
-                                <argument>${jextract.output}/com/gliwka/hyperscan/jni/generated/hyperscan$shared.java</argument>
+                                <argument>${jextract.output}/com/xenoamess/hyperscan_panama/jni/generated/hyperscan$shared.java</argument>
                             </arguments>
                         </configuration>
                     </execution>
@@ -151,7 +151,7 @@
                         <id>default-jar</id>
                         <configuration>
                             <includes>
-                                <include>com/gliwka/hyperscan/jni/HyperscanNativeLoader.class</include>
+                                <include>com/xenoamess/hyperscan_panama/jni/HyperscanNativeLoader.class</include>
                                 <include>com/xenoamess/**</include>
                             </includes>
                         </configuration>
@@ -243,10 +243,10 @@
                                         <argument>--output</argument>
                                         <argument>${jextract.output}</argument>
                                         <argument>--target-package</argument>
-                                        <argument>com.gliwka.hyperscan.jni.generated</argument>
+                                        <argument>com.xenoamess.hyperscan_panama.jni.generated</argument>
                                         <argument>-I</argument>
                                         <argument>${project.basedir}/cppbuild/include</argument>
-                                        <argument>${project.basedir}/src/main/java/com/gliwka/hyperscan/jni/hyperscan</argument>
+                                        <argument>${project.basedir}/src/main/java/com/xenoamess/hyperscan_panama/jni/hyperscan</argument>
                                     </arguments>
                                 </configuration>
                             </execution>
