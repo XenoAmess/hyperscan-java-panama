@@ -17,7 +17,6 @@ deploy:
         applyMavenCentralRules: true
         stagingRepositories:
           - target/staging-deploy
-        verifyUrl: 'https://repo1.maven.org/maven2/{{path}}/{{filename}}'
         namespace: com.xenoamess
 
 signing:

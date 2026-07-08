@@ -58,14 +58,11 @@ jobs:
           cp "$SRC"/* "$DST/"
           find target/staging-deploy -type f
 
-      - name: Set up JReleaser
+      - name: Deploy to Maven Central
         uses: jreleaser/release-action@v2
         with:
-          setup-only: true
           version: 1.14.0
-
-      - name: Deploy to Maven Central
-        run: jreleaser deploy --debug
+          arguments: deploy --debug
         env:
           JRELEASER_MAVENCENTRAL_USERNAME: ${{ secrets.CENTRAL_TOKEN_USERNAME }}
           JRELEASER_MAVENCENTRAL_PASSWORD: ${{ secrets.CENTRAL_TOKEN_PASSWORD }}
