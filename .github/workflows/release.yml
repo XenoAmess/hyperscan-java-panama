@@ -1,9 +1,12 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
+    inputs:
+      nativeVersion:
+        description: 'Native artifact version (leave empty for auto)'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -22,11 +25,14 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Download merged native artifacts
-        uses: actions/download-artifact@v4
+      - name: Download latest merged native artifacts
+        uses: dawidd6/action-download-artifact@v9
         with:
+          workflow: build.yml
+          branch: main
           name: native-merged
           path: target/staging-deploy
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install native artifacts to local Maven
         run: |
@@ -74,5 +80,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ github.event.inputs.nativeVersion || '5.4.11-rc1' }}
           files: release-jars/*.jar
           generate_release_notes: true
+          prerelease: true
