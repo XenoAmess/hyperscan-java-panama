@@ -13,7 +13,7 @@ import java.lang.foreign.ValueLayout;
 import java.nio.Buffer;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.util.LinkedList;
+import java.util.ArrayList;
 import java.util.List;
 
 import static java.util.Collections.emptyList;
@@ -110,15 +110,14 @@ public class Scanner implements Closeable {
     }
 
     public List<Match> scan(final Database db, final String input) {
-        final LinkedList<Match> matches = new LinkedList<>();
+        final ArrayList<Match> matches = new ArrayList<>();
 
         scan(db, input, (expression, fromStringIndexLong, toStringIndexLong) -> {
-            String match = "";
             if (expression.getFlags().contains(ExpressionFlag.SOM_LEFTMOST)) {
-                match = input.substring((int) fromStringIndexLong, (int) toStringIndexLong + 1);
+                matches.add(new Match(input, (int) fromStringIndexLong, (int) toStringIndexLong, expression));
+            } else {
+                matches.add(new Match((int) fromStringIndexLong, (int) toStringIndexLong, "", expression));
             }
-
-            matches.add(new Match((int) fromStringIndexLong, (int) toStringIndexLong, match, expression));
             return true;
         });
 
