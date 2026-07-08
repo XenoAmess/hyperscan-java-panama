@@ -21,6 +21,7 @@
 - **Entry points**:
   - `docs/knowledge-base/panama-ffm/pointer-output-arguments.md` — how to handle C `T**` output arguments in Panama FFM.
   - `docs/knowledge-base/panama-ffm/serialization-roundtrip.md` — serialization round-trip debugging case.
+  - `docs/knowledge-base/javacpp/callback-reuse.md` — JavaCPP `FunctionPointer` callbacks must be reused across scans.
 
 ## Local Development
 
@@ -51,6 +52,7 @@ DETECTED_PLATFORM=linux-x86_64-avx2 mvn test -pl wrapper,performance -am
 3. **jextract C_LONG on old Linux**: On CentOS 7-like environments, jextract may misidentify `C_LONG` as `OfInt`. The build runs `native/fix-jextract-shared.sh` to correct it.
 4. **Wrapper depends on a classifier JAR**: Wrapper compilation requires a platform-specific `hyperscan-java-panama-native` classifier JAR to be available in the local Maven repository.
 5. **Serialization tests were previously disabled**: After the fix, both `wrapper/DatabaseTest#testSerializationDeserializationRoundtrip` and `performance/WrapperSmokeTest#databaseSerializationRoundTrip` are enabled. Do not disable them unless the upstream library genuinely breaks.
+6. **JavaCPP callback reuse**: JavaCPP `FunctionPointer` callbacks (e.g., `match_event_handler`) must be reused across scans. Creating a new anonymous callback per `hs_scan` causes zero-match failures after a small number of scans. See `docs/knowledge-base/javacpp/callback-reuse.md`.
 
 ## Code Style
 
