@@ -62,7 +62,7 @@ jobs:
         uses: jreleaser/release-action@v2
         with:
           version: 1.14.0
-          arguments: deploy --debug
+          arguments: deploy
         env:
           JRELEASER_PROJECT_VERSION: ${{ github.event.inputs.nativeVersion || '5.4.11-rc1' }}
           JRELEASER_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
