@@ -1,8 +1,11 @@
 name: Performance Report
 
 on:
-  push:
-    branches: [ main, master ]
+  workflow_run:
+    workflows: ["Build and Test"]
+    types:
+      - completed
+    branches: [main, master]
   workflow_dispatch:
 
 permissions:
@@ -18,12 +21,15 @@ jobs:
   benchmark:
     name: Run performance benchmarks
     runs-on: ubuntu-24.04
+    if: github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch'
     env:
-      DETECTED_PLATFORM: linux-x86_64-avx2
+      BENCHMARK_PLATFORM: linux-x86_64
       BENCHMARK_OUTPUT_DIR: _site
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up JDK 25
         uses: actions/setup-java@v4
@@ -37,15 +43,36 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Build and install native module
+      - name: Download merged native artifacts (from triggering run)
+        if: github.event_name == 'workflow_run'
+        uses: actions/download-artifact@v4
+        with:
+          name: native-merged
+          path: target/staging-deploy
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download latest merged native artifacts (manual dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        uses: dawidd6/action-download-artifact@v9
+        with:
+          workflow: build.yml
+          branch: main
+          name: native-merged
+          path: target/staging-deploy
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install native artifacts to local Maven
         run: |
           set -euo pipefail
-          mvn -B install -pl native -DskipTests
+          mkdir -p ~/.m2/repository
+          cp -r target/staging-deploy/com ~/.m2/repository/
+          find ~/.m2/repository/com/xenoamess/hyperscan_panama
 
       - name: Run performance tests
         run: |
           set -euo pipefail
-          mvn -B test -pl performance -am -Dnative.classifier=${DETECTED_PLATFORM}
+          mvn -B test -pl performance -Dnative.classifier=${BENCHMARK_PLATFORM}
 
       - name: Generate HTML/SVG report
         run: |
