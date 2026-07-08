@@ -13,6 +13,7 @@
     <artifactId>hyperscan-java-panama-native</artifactId>
     <name>hyperscan-java-panama-native</name>
     <description>Native libraries and Project Panama bindings for hyperscan-java-panama</description>
+    <url>https://github.com/XenoAmess/hyperscan-java-panama</url>
 
     <properties>
         <!-- The platform variant being built, e.g. linux-x86_64-baseline -->

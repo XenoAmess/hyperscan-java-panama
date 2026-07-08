@@ -13,6 +13,7 @@
     <artifactId>hyperscan-java-panama</artifactId>
     <name>hyperscan-java-panama</name>
     <description>Java wrapper for the high-performance multiple regular expression library Hyperscan (Project Panama)</description>
+    <url>https://github.com/XenoAmess/hyperscan-java-panama</url>
 
     <properties>
         <!-- Native platform classifier used for the wrapper build and tests.
