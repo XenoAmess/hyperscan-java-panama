@@ -12,6 +12,7 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.Buffer;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.LinkedList;
 import java.util.List;
 
@@ -125,10 +126,20 @@ public class Scanner implements Closeable {
     }
 
     public void scan(final Database db, final String input, StringMatchEventHandler eventHandler) {
+        if (isAscii(input)) {
+            byte[] bytes = input.getBytes(StandardCharsets.UTF_8);
+            scanRaw(db, bytes, (expressionId, fromByteIdx, toByteIdx, flags) -> {
+                Expression expression = db.getExpression(expressionId);
+                long toStringIndex = toByteIdx > 0 ? toByteIdx - 1 : 0;
+                return eventHandler.onMatch(expression, fromByteIdx, toStringIndex);
+            });
+            return;
+        }
+
         ByteBuffer byteBuffer = ByteBuffer.allocateDirect(input.length() * 4);
         final ByteCharMapping mapping = Utf8Encoder.encodeToBufferAndMap(byteBuffer, input);
 
-        scan(db, byteBuffer, (expressionId, fromByteIdx, toByteIdx, flags) -> {
+        scanRaw(db, byteBuffer, (expressionId, fromByteIdx, toByteIdx, flags) -> {
             Expression expression = db.getExpression(expressionId);
             long fromStringIndex = mapping.getMappingSize() > 0 ? mapping.getCharIndex((int) fromByteIdx) : 0;
             long toStringIndex = 0;
@@ -142,13 +153,29 @@ public class Scanner implements Closeable {
     }
 
     public void scan(final Database db, final byte[] input, ByteMatchEventHandler eventHandler) {
-        scan(db, ByteBuffer.wrap(input),
-                (expressionId, fromByteIdx, toByteIdx, expressionFlags) ->
-                        eventHandler.onMatch(db.getExpression(expressionId), fromByteIdx, toByteIdx)
+        scanRaw(db, input, (expressionId, fromByteIdx, toByteIdx, flags) ->
+                eventHandler.onMatch(db.getExpression(expressionId), fromByteIdx, toByteIdx)
         );
     }
 
-    private int scan(final Database db, final ByteBuffer input, RawMatchEventHandler eventHandler) {
+    private int scanRaw(final Database db, final byte[] data, RawMatchEventHandler eventHandler) {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment segment = arena.allocate(data.length);
+            segment.copyFrom(MemorySegment.ofArray(data));
+            return scanRaw(db, segment, data.length, eventHandler);
+        }
+    }
+
+    private int scanRaw(final Database db, final ByteBuffer input, RawMatchEventHandler eventHandler) {
+        int position = input.position();
+        int length = input.remaining();
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment data = getNativeSegment(arena, input, position, length);
+            return scanRaw(db, data, length, eventHandler);
+        }
+    }
+
+    private int scanRaw(final Database db, final MemorySegment data, final int length, RawMatchEventHandler eventHandler) {
         if (activeCallback.get() != null) {
             throw new IllegalStateException("Recursive scanning is not supported.");
         }
@@ -161,19 +188,23 @@ public class Scanner implements Closeable {
             if (scratch.address() == 0) {
                 throw new IllegalStateException("Scratch space has not been allocated. Call allocScratch() before scanning.");
             }
-            int position = input.position();
-            int length = input.remaining();
-            try (Arena arena = Arena.ofConfined()) {
-                MemorySegment data = getNativeSegment(arena, input, position, length);
-                int hsError = hyperscan.hs_scan(database, data, length, 0, scratch, MATCH_HANDLER, MemorySegment.NULL);
-                if (hsError != 0 && hsError != hyperscan.HS_SCAN_TERMINATED()) {
-                    throw HyperscanException.hsErrorToException(hsError);
-                }
-                return hsError;
+            int hsError = hyperscan.hs_scan(database, data, length, 0, scratch, MATCH_HANDLER, MemorySegment.NULL);
+            if (hsError != 0 && hsError != hyperscan.HS_SCAN_TERMINATED()) {
+                throw HyperscanException.hsErrorToException(hsError);
             }
+            return hsError;
         } finally {
             activeCallback.remove();
         }
+    }
+
+    private static boolean isAscii(String input) {
+        for (int i = 0; i < input.length(); i++) {
+            if (input.charAt(i) >= 0x80) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static MemorySegment getNativeSegment(Arena arena, ByteBuffer input, int position, int length) {
@@ -192,21 +223,33 @@ public class Scanner implements Closeable {
     public boolean hasMatch(final Database db, final ByteBuffer input) {
         RawMatchEventHandler terminationHandler = (expressionId, fromByteIdx, toByteIdx, flags) -> false;
 
-        int hsError = scan(db, input, terminationHandler);
+        int hsError = scanRaw(db, input, terminationHandler);
         return hsError == hyperscan.HS_SCAN_TERMINATED();
     }
 
     public boolean hasMatch(final Database db, final byte[] input) {
-        ByteBuffer directBuffer = ByteBuffer.allocateDirect(input.length);
-        directBuffer.put(input);
-        ((Buffer) directBuffer).flip();
-        return hasMatch(db, directBuffer);
+        return hasMatch(db, input, 0, input.length);
     }
 
     public boolean hasMatch(final Database db, final String input) {
+        if (isAscii(input)) {
+            byte[] bytes = input.getBytes(StandardCharsets.UTF_8);
+            return hasMatch(db, bytes, 0, bytes.length);
+        }
         ByteBuffer byteBuffer = ByteBuffer.allocateDirect(input.length() * 4);
         Utf8Encoder.encodeToBufferAndMap(byteBuffer, input);
         return hasMatch(db, byteBuffer);
+    }
+
+    private boolean hasMatch(final Database db, final byte[] input, int offset, int length) {
+        RawMatchEventHandler terminationHandler = (expressionId, fromByteIdx, toByteIdx, flags) -> false;
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment source = MemorySegment.ofArray(input).asSlice(offset, length);
+            MemorySegment data = arena.allocate(length);
+            data.copyFrom(source);
+            int hsError = scanRaw(db, data, length, terminationHandler);
+            return hsError == hyperscan.HS_SCAN_TERMINATED();
+        }
     }
 
     @Override
