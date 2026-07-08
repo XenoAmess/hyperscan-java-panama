@@ -4,6 +4,7 @@ project:
   links:
     homepage: https://github.com/XenoAmess/hyperscan-java-panama
   license: BSD-3-Clause
+  copyright: 2026 XenoAmess
   authors:
     - XenoAmess
 
