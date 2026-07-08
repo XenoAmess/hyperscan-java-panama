@@ -253,7 +253,7 @@ FunctionDescriptor descriptor = FunctionDescriptor.of(
 2. **jextract 生成代码风格**：struct 访问器、函数名、库加载方式可能与预期不同，需生成后根据实际输出微调 wrapper。
 3. **Java 25 兼容性**：Lombok、JMH 需升级到支持 Java 25 的版本。
 4. **MemorySegment 生命周期**：数据库指针在 `compile` 后需长期存活，使用 `MemorySegment.ofAddress(address)` 存储并传给 `Cleaner`。
-5. **序列化流程**：Panama 版 `Database.save()` 需按标准 `hs_serialize_database(db, NULL, &size)` → allocate → 再次调用的两步流程实现，不能复用 JavaCPP 的 `BytePointer` 行为。
+5. **序列化流程**：Panama 版 `Database.save()` 已按标准 `hs_serialize_database(db, char **bytes, size_t *length)` 正确实现（库分配输出缓冲区，调用者用 `free()` 释放）。具体排查过程与修复方案参见 [docs/knowledge-base/panama-ffm/serialization-roundtrip.md](./knowledge-base/panama-ffm/serialization-roundtrip.md)。
 
 ---
 
