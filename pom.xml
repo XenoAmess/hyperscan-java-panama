@@ -15,6 +15,7 @@
     <modules>
         <module>native</module>
         <module>wrapper</module>
+        <module>performance</module>
     </modules>
 
     <licenses>

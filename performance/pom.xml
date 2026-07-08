@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.xenoamess.hyperscan_panama</groupId>
+        <artifactId>hyperscan-java-panama-parent</artifactId>
+        <version>5.4.12-1.0.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>hyperscan-java-panama-performance</artifactId>
+    <name>hyperscan-java-panama-performance</name>
+    <description>Performance tests and cross-platform benchmarks for hyperscan-java-panama</description>
+
+    <properties>
+        <!-- Native classifier used for the performance run. -->
+        <native.classifier>${env.DETECTED_PLATFORM}</native.classifier>
+        <benchmark.platform>${native.classifier}</benchmark.platform>
+    </properties>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <reuseForks>false</reuseForks>
+                    <argLine>--enable-native-access=ALL-UNNAMED</argLine>
+                    <systemPropertyVariables>
+                        <benchmark.platform>${benchmark.platform}</benchmark.platform>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.xenoamess.hyperscan_panama</groupId>
+            <artifactId>hyperscan-java-panama</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <version>${assertj.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>
