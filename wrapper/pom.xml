@@ -7,7 +7,7 @@
     <parent>
         <groupId>com.xenoamess.hyperscan_panama</groupId>
         <artifactId>hyperscan-java-panama-parent</artifactId>
-        <version>5.4.12-1.0.0-SNAPSHOT</version>
+        <version>5.4.11-rc1</version>
     </parent>
 
     <artifactId>hyperscan-java-panama</artifactId>

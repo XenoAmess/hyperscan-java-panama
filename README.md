@@ -28,7 +28,7 @@ Add the dependency to your `pom.xml`:
 <dependency>
     <groupId>com.xenoamess.hyperscan_panama</groupId>
     <artifactId>hyperscan-java-panama</artifactId>
-    <version>5.4.12-1.0.0-SNAPSHOT</version>
+    <version>5.4.11-rc1</version>
 </dependency>
 ```
 
@@ -80,20 +80,11 @@ https://xenoamess.github.io/hyperscan-java-panama
 
 The report includes the same fixed workload used by [hyperscan-java-test](https://xenoamess.github.io/hyperscan-java-test/) (500 mixed patterns over ~20 KB input, 5 iterations) for direct cross-project comparison, alongside the original hyperscan-java-panama benchmarks.
 
-Run benchmarks locally for one platform family (the native loader picks the best ISA variant at runtime):
+Run benchmarks locally:
 
 ```bash
-export DETECTED_PLATFORM=linux-x86_64
+export DETECTED_PLATFORM=linux-x86_64-avx2
 mvn test -pl performance -am -Dnative.classifier=${DETECTED_PLATFORM}
-```
-
-To force a specific sub-variant, pass the platform override:
-
-```bash
-export DETECTED_PLATFORM=linux-x86_64
-mvn test -pl performance -am -Dnative.classifier=${DETECTED_PLATFORM} \
-  -Dbenchmark.platform=linux-x86_64-avx2 \
-  -Dnative.platform.override="-Dcom.xenoamess.hyperscan_panama.platform=linux-x86_64-avx2"
 ```
 
 
