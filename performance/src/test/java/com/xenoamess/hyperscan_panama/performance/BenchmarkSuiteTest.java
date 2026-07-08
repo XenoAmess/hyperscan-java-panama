@@ -18,7 +18,6 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Random;
 import java.util.UUID;
-import java.util.regex.Pattern;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -325,7 +324,7 @@ class BenchmarkSuiteTest {
         expressions.add(new Expression("\\bWARNING\\b", ExpressionFlag.SOM_LEFTMOST, 4));
         for (int i = 5; i < count; i++) {
             String token = UUID.randomUUID().toString().substring(0, 8);
-            expressions.add(new Expression(Pattern.quote("TOKEN_" + token), ExpressionFlag.SOM_LEFTMOST, i));
+            expressions.add(new Expression("TOKEN_" + token, ExpressionFlag.SOM_LEFTMOST, i));
         }
         return expressions;
     }
