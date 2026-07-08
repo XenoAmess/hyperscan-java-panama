@@ -17,7 +17,6 @@ import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Random;
-import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -251,8 +250,9 @@ class BenchmarkSuiteTest {
 
     private static List<Expression> generateLiteralExpressions(int count) {
         List<Expression> expressions = new ArrayList<>(count);
+        Random random = new Random(2028);
         for (int i = 0; i < count; i++) {
-            String literal = "LIT_" + UUID.randomUUID().toString().replace("-", "");
+            String literal = "LIT_" + String.format("%08x", random.nextInt());
             expressions.add(new Expression(literal, ExpressionFlag.SOM_LEFTMOST, i));
         }
         return expressions;
@@ -322,8 +322,9 @@ class BenchmarkSuiteTest {
         expressions.add(new Expression("https?://[^\\s]+", ExpressionFlag.SOM_LEFTMOST, 2));
         expressions.add(new Expression("\\bERROR\\b", ExpressionFlag.SOM_LEFTMOST, 3));
         expressions.add(new Expression("\\bWARNING\\b", ExpressionFlag.SOM_LEFTMOST, 4));
+        Random random = new Random(2027);
         for (int i = 5; i < count; i++) {
-            String token = UUID.randomUUID().toString().substring(0, 8);
+            String token = String.format("%08x", random.nextInt());
             expressions.add(new Expression("TOKEN_" + token, ExpressionFlag.SOM_LEFTMOST, i));
         }
         return expressions;
@@ -331,6 +332,7 @@ class BenchmarkSuiteTest {
 
     private static String buildCrossPlatformInput(int size, int seedCount) {
         Random random = new Random(2026);
+        Random tokenRandom = new Random(2027);
         StringBuilder sb = new StringBuilder(size);
         String[] fragments = {
                 "Contact support@example.com for help. ",
@@ -341,7 +343,7 @@ class BenchmarkSuiteTest {
         };
         while (sb.length() < size) {
             if (random.nextInt(10) == 0 && seedCount > 0) {
-                sb.append("TOKEN_").append(UUID.randomUUID().toString().substring(0, 8)).append(" ");
+                sb.append("TOKEN_").append(String.format("%08x", tokenRandom.nextInt())).append(" ");
                 seedCount--;
             } else {
                 sb.append(fragments[random.nextInt(fragments.length)]);
@@ -357,8 +359,9 @@ class BenchmarkSuiteTest {
         expressions.add(new Expression("https?://[^\\s]+", ExpressionFlag.SOM_LEFTMOST, 2));
         expressions.add(new Expression("\\bERROR\\b", ExpressionFlag.SOM_LEFTMOST, 3));
         expressions.add(new Expression("\\bWARNING\\b", ExpressionFlag.SOM_LEFTMOST, 4));
+        Random random = new Random(2027);
         for (int i = 5; i < count; i++) {
-            String token = UUID.randomUUID().toString().substring(0, 8);
+            String token = String.format("%08x", random.nextInt());
             expressions.add(new Expression("TOKEN_" + token, ExpressionFlag.SOM_LEFTMOST, i));
         }
         return expressions;
@@ -366,6 +369,7 @@ class BenchmarkSuiteTest {
 
     private static String buildMixedInput(int size, int seedCount) {
         Random random = new Random(2026);
+        Random tokenRandom = new Random(2027);
         StringBuilder sb = new StringBuilder(size);
         String[] fragments = {
                 "Contact support@example.com for help. ",
@@ -376,7 +380,7 @@ class BenchmarkSuiteTest {
         };
         while (sb.length() < size) {
             if (random.nextInt(10) == 0 && seedCount > 0) {
-                sb.append("TOKEN_").append(UUID.randomUUID().toString().substring(0, 8)).append(" ");
+                sb.append("TOKEN_").append(String.format("%08x", tokenRandom.nextInt())).append(" ");
                 seedCount--;
             } else {
                 sb.append(fragments[random.nextInt(fragments.length)]);

@@ -11,7 +11,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
-import java.util.UUID;
 import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -23,9 +22,10 @@ class SyntheticDataTest {
         int count = 200;
         List<Expression> expressions = new ArrayList<>();
         List<String> expectedMatches = new ArrayList<>();
+        Random random = new Random(2029);
 
         for (int i = 0; i < count; i++) {
-            String literal = "LIT_" + UUID.randomUUID().toString().replace("-", "");
+            String literal = "LIT_" + String.format("%08x", random.nextInt());
             expressions.add(new Expression(Pattern.quote(literal), ExpressionFlag.SOM_LEFTMOST, i));
             if (i % 7 == 0) {
                 expectedMatches.add(literal);
@@ -67,7 +67,12 @@ class SyntheticDataTest {
                 input.append((char) ('a' + random.nextInt(26)));
             }
             input.append(" 12345 ABCDE lowercase ");
-            input.append(UUID.randomUUID().toString().replace("-", ""));
+            Random hexRandom = new Random(2030);
+            StringBuilder hex = new StringBuilder(32);
+            for (int i = 0; i < 32; i++) {
+                hex.append(String.format("%x", hexRandom.nextInt(16)));
+            }
+            input.append(hex);
 
             scanner.allocScratch(database);
             List<Match> matches = scanner.scan(database, input.toString());
