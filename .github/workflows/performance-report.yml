@@ -165,7 +165,7 @@ jobs:
 
       - name: Upload benchmark raw result
         if: always() && steps.cpu-check.outputs.SKIPPED != 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: benchmark-raw-${{ matrix.platform }}
           path: performance/target/benchmark-results/benchmark-result.json
