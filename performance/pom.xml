@@ -15,9 +15,12 @@
     <description>Performance tests and cross-platform benchmarks for hyperscan-java-panama</description>
 
     <properties>
-        <!-- Native classifier used for the performance run. -->
+        <!-- Native classifier used to resolve the native Maven artifact. -->
         <native.classifier>${env.DETECTED_PLATFORM}</native.classifier>
+        <!-- Platform name recorded in the benchmark report (may be a sub-variant). -->
         <benchmark.platform>${native.classifier}</benchmark.platform>
+        <!-- Optional JVM arg to force a specific native platform variant. -->
+        <native.platform.override></native.platform.override>
     </properties>
 
     <build>
@@ -27,7 +30,7 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
                     <reuseForks>false</reuseForks>
-                    <argLine>--enable-native-access=ALL-UNNAMED</argLine>
+                    <argLine>--enable-native-access=ALL-UNNAMED ${native.platform.override}</argLine>
                     <systemPropertyVariables>
                         <benchmark.platform>${benchmark.platform}</benchmark.platform>
                     </systemPropertyVariables>

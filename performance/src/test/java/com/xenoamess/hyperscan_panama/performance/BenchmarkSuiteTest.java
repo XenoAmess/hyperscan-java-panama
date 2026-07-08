@@ -18,6 +18,7 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Random;
 import java.util.UUID;
+import java.util.regex.Pattern;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -265,6 +266,86 @@ class BenchmarkSuiteTest {
                 sb.append(expressions.get(i).getExpression()).append(' ');
             } else {
                 sb.append("noise_").append(i).append(' ');
+            }
+        }
+        return sb.toString();
+    }
+
+    @Test
+    void benchmarkCrossPlatformFixedWorkload() throws Exception {
+        // Replicates the fixed workload from hyperscan-java-test's InstructionSetGranularityTest
+        // so the two projects can be compared on the same 500-pattern / ~20 KB input.
+        List<Expression> expressions = buildCrossPlatformExpressions(500);
+        String input = buildCrossPlatformInput(20_000, 50);
+
+        try (Database database = Database.compile(expressions);
+             Scanner scanner = new Scanner()) {
+            scanner.allocScratch(database);
+
+            int warmupIterations = 2;
+            int measuredIterations = 5;
+
+            for (int i = 0; i < warmupIterations; i++) {
+                scanner.scan(database, input);
+            }
+
+            double[] elapsedMs = new double[measuredIterations];
+            double[] throughputMBps = new double[measuredIterations];
+            List<Match> lastMatches = null;
+            for (int i = 0; i < measuredIterations; i++) {
+                long start = System.nanoTime();
+                List<Match> matches = scanner.scan(database, input);
+                long elapsed = System.nanoTime() - start;
+                elapsedMs[i] = elapsed / 1_000_000.0;
+                throughputMBps[i] = input.length() * 1_000.0 / elapsed;
+                lastMatches = matches;
+            }
+
+            BenchmarkResult result = new BenchmarkResult("ISA granularity benchmark")
+                    .metric("patterns", expressions.size())
+                    .metric("inputBytes", input.length())
+                    .metric("matches", lastMatches == null ? 0 : lastMatches.size())
+                    .metric("iterations", measuredIterations)
+                    .metric("elapsedMsAvg", avg(elapsedMs))
+                    .metric("elapsedMsMin", min(elapsedMs))
+                    .metric("elapsedMsMax", max(elapsedMs))
+                    .metric("throughputMBpsAvg", avg(throughputMBps))
+                    .metric("throughputMBpsMin", min(throughputMBps))
+                    .metric("throughputMBpsMax", max(throughputMBps));
+            results.add(result);
+        }
+    }
+
+    private static List<Expression> buildCrossPlatformExpressions(int count) {
+        List<Expression> expressions = new ArrayList<>(count);
+        expressions.add(new Expression("[0-9]{3}-[0-9]{2}-[0-9]{4}", ExpressionFlag.SOM_LEFTMOST, 0));
+        expressions.add(new Expression("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}", ExpressionFlag.SOM_LEFTMOST, 1));
+        expressions.add(new Expression("https?://[^\\s]+", ExpressionFlag.SOM_LEFTMOST, 2));
+        expressions.add(new Expression("\\bERROR\\b", ExpressionFlag.SOM_LEFTMOST, 3));
+        expressions.add(new Expression("\\bWARNING\\b", ExpressionFlag.SOM_LEFTMOST, 4));
+        for (int i = 5; i < count; i++) {
+            String token = UUID.randomUUID().toString().substring(0, 8);
+            expressions.add(new Expression(Pattern.quote("TOKEN_" + token), ExpressionFlag.SOM_LEFTMOST, i));
+        }
+        return expressions;
+    }
+
+    private static String buildCrossPlatformInput(int size, int seedCount) {
+        Random random = new Random(2026);
+        StringBuilder sb = new StringBuilder(size);
+        String[] fragments = {
+                "Contact support@example.com for help. ",
+                "SSN 123-45-6789 is fake. ",
+                "Visit https://example.com/page for more. ",
+                "ERROR: disk full. ",
+                "WARNING: high latency. ",
+        };
+        while (sb.length() < size) {
+            if (random.nextInt(10) == 0 && seedCount > 0) {
+                sb.append("TOKEN_").append(UUID.randomUUID().toString().substring(0, 8)).append(" ");
+                seedCount--;
+            } else {
+                sb.append(fragments[random.nextInt(fragments.length)]);
             }
         }
         return sb.toString();

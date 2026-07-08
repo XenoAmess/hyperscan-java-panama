@@ -1,106 +1,146 @@
 #!/usr/bin/env python3
 import json
-import math
 import os
 import sys
+from datetime import datetime, timezone
+from html import escape
 
 
-def load_result(path):
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+def load_results(input_dir):
+    results = []
+    for root, _, files in os.walk(input_dir):
+        for name in files:
+            if name.endswith('.json'):
+                path = os.path.join(root, name)
+                try:
+                    with open(path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        data['_source'] = path
+                        results.append(data)
+                except Exception as e:
+                    print(f"Warning: failed to parse {path}: {e}", file=sys.stderr)
+    return results
 
 
-def escape_xml(text):
-    return (text
-            .replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace('"', "&quot;"))
+def safe_get(d, *keys, default=None):
+    for key in keys:
+        if isinstance(d, dict) and key in d:
+            d = d[key]
+        elif isinstance(d, list) and isinstance(key, int) and -len(d) <= key < len(d):
+            d = d[key]
+        else:
+            return default
+    return d
 
 
-def generate_svg(result, output_path, metric="opsPerSecond"):
-    benchmarks = result.get("benchmarks", [])
-    if not benchmarks:
-        print("No benchmarks to chart")
-        return
+def format_num(value, decimals=2):
+    if value is None:
+        return 'N/A'
+    try:
+        return f"{float(value):,.{decimals}f}"
+    except (ValueError, TypeError):
+        return str(value)
 
-    names = [b.get("name", "") for b in benchmarks]
-    values = [b.get("metrics", {}).get(metric, 0) for b in benchmarks]
 
-    width = 900
-    left_margin = 200
-    right_margin = 40
-    top_margin = 60
-    bottom_margin = 80
+def build_summary_rows(results, fixed_benchmark_name='ISA granularity benchmark'):
+    rows = []
+    for r in results:
+        platform = r.get('platform', 'unknown')
+        bench = next((b for b in r.get('benchmarks', []) if b.get('name') == fixed_benchmark_name), None)
+        if bench is None:
+            continue
+        metrics = bench.get('metrics', {})
+        throughput = metrics.get('throughputMBpsAvg', 0.0)
+        rows.append({
+            'platform': platform,
+            'throughput': float(throughput or 0.0),
+            'result': r,
+        })
+    rows.sort(key=lambda x: x['throughput'], reverse=True)
+    return rows
+
+
+def generate_svg(results, output_file, title='hyperscan-java-panama'):
+    rows = build_summary_rows(results)
+    if not rows:
+        print('No fixed workload results found.', file=sys.stderr)
+        sys.exit(1)
+
+    max_tp = max(row['throughput'] for row in rows) if rows else 1
+    if max_tp <= 0:
+        max_tp = 1
+
+    width = 800
+    top_margin = 70
+    bottom_margin = 40
+    left_margin = 190
+    right_margin = 90
+    bar_height = 28
+    bar_gap = 18
+    chart_height = len(rows) * (bar_height + bar_gap) + bar_gap
+    height = top_margin + chart_height + bottom_margin
+
+    generated_at = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+    native_version = safe_get(rows[0], 'result', 'nativeVersion', default='unknown') if rows else 'unknown'
+    commit_sha = safe_get(rows[0], 'result', 'commitSha', default='unknown') if rows else 'unknown'
+    commit_short = (commit_sha[:7] if commit_sha and len(commit_sha) > 7 else commit_sha) or 'unknown'
+
+    svg = []
+    svg.append(f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" role="img" aria-label="Cross-platform performance summary">')
+    svg.append('  <defs>')
+    svg.append('    <linearGradient id="barGradient" x1="0%" y1="0%" x2="100%" y2="0%">')
+    svg.append('      <stop offset="0%" style="stop-color:#2ea043;stop-opacity:1" />')
+    svg.append('      <stop offset="100%" style="stop-color:#3fb950;stop-opacity:1" />')
+    svg.append('    </linearGradient>')
+    svg.append('  </defs>')
+    svg.append(f'  <rect width="{width}" height="{height}" fill="#f6f8fa" rx="6" />')
+    svg.append(f'  <text x="{width / 2}" y="30" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="18" font-weight="bold" text-anchor="middle" fill="#1f2328">{escape(title)} Fixed Workload</text>')
+    subtitle = f"Native {native_version}  ·  {len(rows)} platforms  ·  commit {commit_short}"
+    svg.append(f'  <text x="{width / 2}" y="52" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="11" text-anchor="middle" fill="#656d76">{escape(subtitle)}</text>')
+
     chart_width = width - left_margin - right_margin
-    chart_height = 400
-    height = chart_height + top_margin + bottom_margin
+    for idx, row in enumerate(rows):
+        y = top_margin + bar_gap + idx * (bar_height + bar_gap)
+        platform = row['platform']
+        throughput = row['throughput']
+        bar_width = (throughput / max_tp) * chart_width
 
-    max_value = max(values) if values else 0
-    if max_value == 0:
-        max_value = 1
+        label_y = y + bar_height / 2 + 4
+        svg.append(f'  <text x="{left_margin - 10}" y="{label_y}" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="12" font-weight="600" text-anchor="end" fill="#24292f">{escape(platform)}</text>')
+        svg.append(f'  <rect x="{left_margin}" y="{y}" width="{chart_width}" height="{bar_height}" fill="#e1e4e8" rx="4" />')
+        if bar_width > 0:
+            fill = 'url(#barGradient)' if idx == 0 else '#2ea043'
+            svg.append(f'  <rect x="{left_margin}" y="{y}" width="{bar_width:.1f}" height="{bar_height}" fill="{fill}" rx="4" />')
+        value_text = f'{format_num(throughput)} MB/s'
+        value_x = left_margin + bar_width + 8
+        if bar_width + 80 > chart_width:
+            value_x = left_margin + chart_width + 8
+        svg.append(f'  <text x="{value_x}" y="{label_y}" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="12" font-weight="600" fill="#24292f">{escape(value_text)}</text>')
 
-    # Round max up to a nice number
-    magnitude = 10 ** math.floor(math.log10(max_value)) if max_value > 0 else 1
-    nice_max = math.ceil(max_value / magnitude) * magnitude
+    footer_y = height - 15
+    svg.append(f'  <text x="{width / 2}" y="{footer_y}" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="10" text-anchor="middle" fill="#656d76">Generated {escape(generated_at)}  ·  Full report at xenoamess.github.io/hyperscan-java-panama</text>')
+    svg.append('</svg>')
 
-    bar_width = chart_width / len(benchmarks) * 0.7
-    bar_gap = chart_width / len(benchmarks) * 0.3
-    bar_unit_height = chart_height / nice_max
-
-    bars = []
-    labels = []
-    for i, (name, value) in enumerate(zip(names, values)):
-        x = left_margin + i * (bar_width + bar_gap) + bar_gap / 2
-        bar_h = value * bar_unit_height
-        y = top_margin + chart_height - bar_h
-        bars.append(
-            f'<rect x="{x:.2f}" y="{y:.2f}" width="{bar_width:.2f}" height="{bar_h:.2f}" fill="#4f81bd" />'
-        )
-        # value label on top of bar
-        labels.append(
-            f'<text x="{x + bar_width / 2:.2f}" y="{y - 5:.2f}" text-anchor="middle" font-size="12">{value:.2f}</text>'
-        )
-        # x-axis label rotated
-        labels.append(
-            f'<text x="{x + bar_width / 2:.2f}" y="{top_margin + chart_height + 15:.2f}" '
-            f'text-anchor="end" font-size="12" transform="rotate(-45, {x + bar_width / 2:.2f}, {top_margin + chart_height + 15:.2f})">'
-            f'{escape_xml(name)}</text>'
-        )
-
-    # y-axis grid lines and labels
-    grid_lines = []
-    for i in range(6):
-        value = nice_max * i / 5
-        y = top_margin + chart_height - (value * bar_unit_height)
-        grid_lines.append(
-            f'<line x1="{left_margin:.2f}" y1="{y:.2f}" x2="{width - right_margin:.2f}" y2="{y:.2f}" stroke="#ddd" stroke-width="1" />'
-        )
-        grid_lines.append(
-            f'<text x="{left_margin - 10:.2f}" y="{y + 4:.2f}" text-anchor="end" font-size="12">{value:.2f}</text>'
-        )
-
-    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">
-  <rect width="100%" height="100%" fill="white"/>
-  <text x="{width / 2:.2f}" y="30" text-anchor="middle" font-size="18" font-weight="bold">{escape_xml(metric)} per Benchmark</text>
-  {''.join(grid_lines)}
-  <line x1="{left_margin:.2f}" y1="{top_margin:.2f}" x2="{left_margin:.2f}" y2="{top_margin + chart_height:.2f}" stroke="#333" stroke-width="2"/>
-  <line x1="{left_margin:.2f}" y1="{top_margin + chart_height:.2f}" x2="{width - right_margin:.2f}" y2="{top_margin + chart_height:.2f}" stroke="#333" stroke-width="2"/>
-  {''.join(bars)}
-  {''.join(labels)}
-</svg>
-"""
-
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write(svg)
-    print(f"SVG chart written to: {output_path}")
+    os.makedirs(os.path.dirname(output_file) or '.', exist_ok=True)
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(svg))
+    print(f'Performance summary SVG generated: {output_file}')
 
 
-if __name__ == "__main__":
-    input_path = sys.argv[1] if len(sys.argv) > 1 else "target/benchmark-results/benchmark-result.json"
-    output_path = sys.argv[2] if len(sys.argv) > 2 else "target/benchmark-results/chart.svg"
-    metric = sys.argv[3] if len(sys.argv) > 3 else "opsPerSecond"
+def main():
+    if len(sys.argv) < 3:
+        print('Usage: generate-performance-svg.py <input-dir> <output-svg>', file=sys.stderr)
+        sys.exit(1)
+    input_dir = sys.argv[1]
+    output_file = sys.argv[2]
 
-    result = load_result(input_path)
-    generate_svg(result, output_path, metric=metric)
+    results = load_results(input_dir)
+    if not results:
+        print('No benchmark results found in input directory.', file=sys.stderr)
+        sys.exit(1)
+
+    generate_svg(results, output_file)
+
+
+if __name__ == '__main__':
+    main()

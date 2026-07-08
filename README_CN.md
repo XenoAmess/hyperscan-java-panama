@@ -74,15 +74,26 @@ mvn verify -pl wrapper -am -Dnative.classifier=${DETECTED_PLATFORM}
 
 ## 性能
 
-`performance` 模块包含可重复执行的基准测试。最新报告发布在 GitHub Pages：
+`performance` 模块包含可重复执行的基准测试。CI 会在所有支持的平台（Linux x86_64 baseline/AVX2/AVX-512、Linux ARM64 baseline/SVE2、Windows x86_64 baseline/AVX2）上运行测试，并把结果聚合成一个 GitHub Pages 报告：
 
 https://xenoamess.github.io/hyperscan-java-panama
 
-本地运行基准测试：
+报告包含与 [hyperscan-java-test](https://xenoamess.github.io/hyperscan-java-test/) 完全相同的固定负载（500 个混合模式、约 20 KB 输入、5 次迭代），方便跨项目对比，同时保留原有的 hyperscan-java-panama 多项基准。
+
+本地运行单个平台族的基准测试（native loader 会在运行时自动选择最佳 ISA 变体）：
 
 ```bash
-export DETECTED_PLATFORM=linux-x86_64-avx2
+export DETECTED_PLATFORM=linux-x86_64
 mvn test -pl performance -am -Dnative.classifier=${DETECTED_PLATFORM}
+```
+
+如需强制指定某个子变体，可传入平台覆盖参数：
+
+```bash
+export DETECTED_PLATFORM=linux-x86_64
+mvn test -pl performance -am -Dnative.classifier=${DETECTED_PLATFORM} \
+  -Dbenchmark.platform=linux-x86_64-avx2 \
+  -Dnative.platform.override="-Dcom.xenoamess.hyperscan_panama.platform=linux-x86_64-avx2"
 ```
 
 

@@ -74,15 +74,26 @@ Available platform classifiers:
 
 ## Performance
 
-The `performance` module contains repeatable benchmarks. The latest report is published to GitHub Pages:
+The `performance` module contains repeatable benchmarks. CI runs them across all supported platforms (Linux x86_64 baseline/AVX2/AVX-512, Linux ARM64 baseline/SVE2, Windows x86_64 baseline/AVX2) and aggregates the results into a single GitHub Pages report:
 
 https://xenoamess.github.io/hyperscan-java-panama
 
-Run benchmarks locally:
+The report includes the same fixed workload used by [hyperscan-java-test](https://xenoamess.github.io/hyperscan-java-test/) (500 mixed patterns over ~20 KB input, 5 iterations) for direct cross-project comparison, alongside the original hyperscan-java-panama benchmarks.
+
+Run benchmarks locally for one platform family (the native loader picks the best ISA variant at runtime):
 
 ```bash
-export DETECTED_PLATFORM=linux-x86_64-avx2
+export DETECTED_PLATFORM=linux-x86_64
 mvn test -pl performance -am -Dnative.classifier=${DETECTED_PLATFORM}
+```
+
+To force a specific sub-variant, pass the platform override:
+
+```bash
+export DETECTED_PLATFORM=linux-x86_64
+mvn test -pl performance -am -Dnative.classifier=${DETECTED_PLATFORM} \
+  -Dbenchmark.platform=linux-x86_64-avx2 \
+  -Dnative.platform.override="-Dcom.xenoamess.hyperscan_panama.platform=linux-x86_64-avx2"
 ```
 
 

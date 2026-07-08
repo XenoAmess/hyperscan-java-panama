@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  actions: write
   pages: write
   id-token: write
 
@@ -19,12 +20,40 @@ concurrency:
 
 jobs:
   benchmark:
-    name: Run performance benchmarks
-    runs-on: ubuntu-24.04
+    name: Run benchmarks (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
     if: github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch'
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform: linux-x86_64-baseline
+            family: linux-x86_64
+          - runner: ubuntu-24.04
+            platform: linux-x86_64-avx2
+            family: linux-x86_64
+          - runner: ubuntu-24.04
+            platform: linux-x86_64
+            family: linux-x86_64
+          - runner: ubuntu-24.04-arm
+            platform: linux-arm64-baseline
+            family: linux-arm64
+          - runner: ubuntu-24.04-arm
+            platform: linux-arm64
+            family: linux-arm64
+          - runner: windows-latest
+            platform: windows-x86_64-baseline
+            family: windows-x86_64
+          - runner: windows-latest
+            platform: windows-x86_64
+            family: windows-x86_64
     env:
-      DETECTED_PLATFORM: linux-x86_64
-      BENCHMARK_OUTPUT_DIR: _site
+      DETECTED_PLATFORM: ${{ matrix.family }}
+      BENCHMARK_PLATFORM: ${{ matrix.platform }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -43,8 +72,57 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Check CPU support for ${{ matrix.platform }} (Linux)
+        if: runner.os == 'Linux'
+        id: cpu-check
+        run: |
+          set -euo pipefail
+          PLATFORM="${{ matrix.platform }}"
+          MISSING=""
+          case "$PLATFORM" in
+            linux-x86_64)
+              if ! grep -m1 '^flags' /proc/cpuinfo | grep -qw 'avx512f'; then MISSING="avx512f"; fi
+              ;;
+            linux-x86_64-avx2)
+              if ! grep -m1 '^flags' /proc/cpuinfo | grep -qw 'avx2'; then MISSING="avx2"; fi
+              ;;
+            linux-x86_64-baseline)
+              if ! grep -m1 '^flags' /proc/cpuinfo | grep -qw 'sse4_2' || ! grep -m1 '^flags' /proc/cpuinfo | grep -qw 'popcnt'; then MISSING="sse4_2/popcnt"; fi
+              ;;
+            linux-arm64)
+              if ! grep -m1 '^Features' /proc/cpuinfo | grep -qw 'sve2'; then MISSING="sve2"; fi
+              ;;
+            linux-arm64-baseline)
+              ;;
+          esac
+          if [ -n "$MISSING" ]; then
+            echo "SKIPPED=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::CPU missing $MISSING; skipping $PLATFORM benchmark."
+          fi
+
+      - name: Collect CPU information (Linux)
+        if: runner.os == 'Linux' && steps.cpu-check.outputs.SKIPPED != 'true'
+        run: |
+          set -euo pipefail
+          MODEL=$(grep -m1 'model name' /proc/cpuinfo | sed 's/^.*: //' || echo 'unknown')
+          FLAGS=$(grep -m1 '^flags' /proc/cpuinfo | sed 's/^.*: //' || grep -m1 '^Features' /proc/cpuinfo | sed 's/^.*: //' || echo 'unknown')
+          echo "CPU_MODEL=$MODEL" >> "$GITHUB_ENV"
+          echo "CPU_FLAGS=$FLAGS" >> "$GITHUB_ENV"
+          echo "CPU model: $MODEL"
+          echo "CPU flags: $FLAGS"
+
+      - name: Collect CPU information (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $model = (Get-CimInstance Win32_Processor).Name
+          if (-not $model) { $model = 'unknown' }
+          "CPU_MODEL=$model" >> $env:GITHUB_ENV
+          "CPU_FLAGS=unknown" >> $env:GITHUB_ENV
+          Write-Host "CPU model: $model"
+
       - name: Download merged native artifacts (from triggering run)
-        if: github.event_name == 'workflow_run'
+        if: github.event_name == 'workflow_run' && steps.cpu-check.outputs.SKIPPED != 'true'
         uses: actions/download-artifact@v4
         with:
           name: native-merged
@@ -53,7 +131,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download latest merged native artifacts (manual dispatch)
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && steps.cpu-check.outputs.SKIPPED != 'true'
         uses: dawidd6/action-download-artifact@v9
         with:
           workflow: build.yml
@@ -63,6 +141,7 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install native artifacts to local Maven
+        if: steps.cpu-check.outputs.SKIPPED != 'true'
         run: |
           set -euo pipefail
           mkdir -p ~/.m2/repository
@@ -70,27 +149,66 @@ jobs:
           find ~/.m2/repository/com/xenoamess/hyperscan_panama
 
       - name: Install parent and wrapper
+        if: steps.cpu-check.outputs.SKIPPED != 'true'
         run: |
           set -euo pipefail
           mvn -B install -N -DskipTests
           mvn -B install -pl wrapper -DskipTests
 
       - name: Run performance tests
+        if: steps.cpu-check.outputs.SKIPPED != 'true'
         run: |
           set -euo pipefail
-          mvn -B test -pl performance
+          mvn -B test -pl performance \
+            -Dbenchmark.platform=${{ matrix.platform }} \
+            -Dnative.platform.override="-Dcom.xenoamess.hyperscan_panama.platform=${{ matrix.platform }}"
 
-      - name: Generate HTML/SVG report
+      - name: Upload benchmark raw result
+        if: always() && steps.cpu-check.outputs.SKIPPED != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-raw-${{ matrix.platform }}
+          path: performance/target/benchmark-results/benchmark-result.json
+          if-no-files-found: warn
+
+  report:
+    name: Aggregate performance report
+    needs: benchmark
+    runs-on: ubuntu-24.04
+    if: always() && !cancelled() && needs.benchmark.result != 'skipped'
+    env:
+      BENCHMARK_OUTPUT_DIR: _site
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Download all benchmark raw results
+        uses: actions/download-artifact@v4
+        with:
+          path: benchmark-raw
+          pattern: benchmark-raw-*
+
+      - name: Generate aggregated HTML report
         run: |
           set -euo pipefail
           mkdir -p ${BENCHMARK_OUTPUT_DIR}
           python3 .github/scripts/generate-performance-report.py \
-            performance/target/benchmark-results/benchmark-result.json \
-            ${BENCHMARK_OUTPUT_DIR}/index.html \
-            ${BENCHMARK_OUTPUT_DIR}/chart.svg
+            benchmark-raw \
+            ${BENCHMARK_OUTPUT_DIR}/index.html
+
+      - name: Generate performance summary SVG
+        run: |
+          set -euo pipefail
           python3 .github/scripts/generate-performance-svg.py \
-            performance/target/benchmark-results/benchmark-result.json \
-            ${BENCHMARK_OUTPUT_DIR}/chart.svg
+            benchmark-raw \
+            ${BENCHMARK_OUTPUT_DIR}/summary.svg
 
       - name: Upload pages artifact
         uses: actions/upload-pages-artifact@v3
@@ -99,7 +217,7 @@ jobs:
 
   deploy:
     name: Deploy to GitHub Pages
-    needs: benchmark
+    needs: report
     runs-on: ubuntu-latest
     environment:
       name: github-pages
