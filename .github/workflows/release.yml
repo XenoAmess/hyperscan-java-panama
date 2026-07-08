@@ -57,12 +57,19 @@ jobs:
           PARENT_DST="$PWD/target/staging-deploy/com/xenoamess/hyperscan_panama/hyperscan-java-panama-parent/$VERSION"
           mkdir -p "$PARENT_DST"
           cp "$PARENT_SRC"/*.pom "$PARENT_DST/"
-          # Copy wrapper
+          # Copy wrapper (jar, pom, sources, javadoc only)
           SRC="$HOME/.m2/repository/com/xenoamess/hyperscan_panama/hyperscan-java-panama/$VERSION"
           DST="$PWD/target/staging-deploy/com/xenoamess/hyperscan_panama/hyperscan-java-panama/$VERSION"
           mkdir -p "$DST"
-          cp "$SRC"/* "$DST/"
-          # Copy native module (already from merged download)
+          cp "$SRC"/*.jar "$DST/" 2>/dev/null || true
+          cp "$SRC"/*.pom "$DST/" 2>/dev/null || true
+          # Clean any _remote.repositories or checksum files from staging
+          find target/staging-deploy -name '_remote.repositories*' -delete
+          find target/staging-deploy -name '*.sha1' -delete
+          find target/staging-deploy -name '*.sha256' -delete
+          find target/staging-deploy -name '*.sha512' -delete
+          find target/staging-deploy -name '*.md5' -delete
+          find target/staging-deploy -name '*.asc' -delete
           find target/staging-deploy -type f
 
       - name: Deploy to Maven Central
