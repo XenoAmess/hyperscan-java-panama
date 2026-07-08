@@ -211,7 +211,7 @@ jobs:
             ${BENCHMARK_OUTPUT_DIR}/summary.svg
 
       - name: Upload pages artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: _site
 
