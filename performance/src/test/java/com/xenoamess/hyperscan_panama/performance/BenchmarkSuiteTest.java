@@ -315,6 +315,57 @@ class BenchmarkSuiteTest {
         }
     }
 
+    @Test
+    void benchmarkFixedWorkloadCounting() throws Exception {
+        // Same workload as ISA granularity benchmark, but the match handler only counts
+        // matches instead of building Match objects and extracting substrings. This isolates
+        // the overhead of the public API's object creation and string extraction from the
+        // raw FFM/native scan performance.
+        List<Expression> expressions = buildCrossPlatformExpressions(500);
+        String input = buildCrossPlatformInput(20_000, 50);
+
+        try (Database database = Database.compile(expressions);
+             Scanner scanner = new Scanner()) {
+            scanner.allocScratch(database);
+
+            int warmupIterations = 2;
+            int measuredIterations = 5;
+
+            for (int i = 0; i < warmupIterations; i++) {
+                scanner.scan(database, input, (expression, from, to) -> true);
+            }
+
+            double[] elapsedMs = new double[measuredIterations];
+            double[] throughputMBps = new double[measuredIterations];
+            long[] lastCount = new long[1];
+            for (int i = 0; i < measuredIterations; i++) {
+                long[] count = new long[1];
+                long start = System.nanoTime();
+                scanner.scan(database, input, (expression, from, to) -> {
+                    count[0]++;
+                    return true;
+                });
+                long elapsed = System.nanoTime() - start;
+                elapsedMs[i] = elapsed / 1_000_000.0;
+                throughputMBps[i] = input.length() * 1_000.0 / elapsed;
+                lastCount[0] = count[0];
+            }
+
+            BenchmarkResult result = new BenchmarkResult("ISA fixed workload (counting only)")
+                    .metric("patterns", expressions.size())
+                    .metric("inputBytes", input.length())
+                    .metric("matches", lastCount[0])
+                    .metric("iterations", measuredIterations)
+                    .metric("elapsedMsAvg", avg(elapsedMs))
+                    .metric("elapsedMsMin", min(elapsedMs))
+                    .metric("elapsedMsMax", max(elapsedMs))
+                    .metric("throughputMBpsAvg", avg(throughputMBps))
+                    .metric("throughputMBpsMin", min(throughputMBps))
+                    .metric("throughputMBpsMax", max(throughputMBps));
+            results.add(result);
+        }
+    }
+
     private static List<Expression> buildCrossPlatformExpressions(int count) {
         List<Expression> expressions = new ArrayList<>(count);
         expressions.add(new Expression("[0-9]{3}-[0-9]{2}-[0-9]{4}", ExpressionFlag.SOM_LEFTMOST, 0));
