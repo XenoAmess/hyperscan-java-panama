@@ -6,6 +6,7 @@ import com.xenoamess.hyperscan_panama.wrapper.ExpressionFlag;
 import com.xenoamess.hyperscan_panama.wrapper.Match;
 import com.xenoamess.hyperscan_panama.wrapper.Scanner;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 
@@ -45,6 +46,21 @@ class BenchmarkSuiteTest {
                 results
         );
         recorder.write();
+    }
+
+    @BeforeAll
+    void warmUp() throws Exception {
+        // Warm up the JVM / JIT / FFM upcall path before any benchmark runs,
+        // so the first benchmark is not penalized by cold-start class loading.
+        List<Expression> expressions = buildCrossPlatformExpressions(500);
+        String input = buildCrossPlatformInput(20_000, 50);
+        try (Database database = Database.compile(expressions);
+             Scanner scanner = new Scanner()) {
+            scanner.allocScratch(database);
+            for (int i = 0; i < 20; i++) {
+                scanner.scan(database, input);
+            }
+        }
     }
 
     private static String readCpuModel() {
