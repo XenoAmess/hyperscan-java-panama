@@ -7,7 +7,7 @@
     <parent>
         <groupId>com.xenoamess.hyperscan_panama</groupId>
         <artifactId>hyperscan-java-panama-parent</artifactId>
-        <version>5.4.12-rc1</version>
+        <version>5.4.12-rc2</version>
     </parent>
 
     <artifactId>hyperscan-java-panama-native</artifactId>
@@ -64,13 +64,12 @@
                             <goal>exec</goal>
                         </goals>
                         <configuration>
-                            <executable>${jextract.bin}</executable>
+                            <executable>bash</executable>
                             <arguments>
-                                <argument>--output</argument>
+                                <argument>${project.basedir}/run-jextract.sh</argument>
+                                <argument>${native.platform}</argument>
+                                <argument>${jextract.bin}</argument>
                                 <argument>${jextract.output}</argument>
-                                <argument>--target-package</argument>
-                                <argument>com.xenoamess.hyperscan_panama.jni.generated</argument>
-                                <argument>-I</argument>
                                 <argument>${project.basedir}/cppbuild/include</argument>
                                 <argument>${project.basedir}/src/main/java/com/xenoamess/hyperscan_panama/jni/hyperscan</argument>
                             </arguments>
@@ -86,7 +85,24 @@
                             <executable>bash</executable>
                             <arguments>
                                 <argument>${project.basedir}/fix-jextract-shared.sh</argument>
-                                <argument>${jextract.output}/com/xenoamess/hyperscan_panama/jni/generated/hyperscan$shared.java</argument>
+                                <argument>${native.platform}</argument>
+                                <argument>${jextract.output}</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>generate-hyperscan-jni-impl</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>bash</executable>
+                            <arguments>
+                                <argument>${project.basedir}/generate-hyperscan-jni-impl.sh</argument>
+                                <argument>${native.platform}</argument>
+                                <argument>${project.basedir}/src/main/template/HyperscanJniImpl.java.template</argument>
+                                <argument>${jextract.output}</argument>
                             </arguments>
                         </configuration>
                     </execution>
@@ -143,7 +159,7 @@
                 </executions>
             </plugin>
 
-            <!-- Create the classifier jar containing native libraries and generated bindings -->
+            <!-- Create the main JAR (platform-independent loader + interface) and the classifier jar (platform-specific bindings) -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
@@ -152,8 +168,9 @@
                         <id>default-jar</id>
                         <configuration>
                             <includes>
+                                <include>com/xenoamess/hyperscan_panama/jni/HyperscanJni.class</include>
+                                <include>com/xenoamess/hyperscan_panama/jni/HyperscanJni$*.class</include>
                                 <include>com/xenoamess/hyperscan_panama/jni/HyperscanNativeLoader.class</include>
-                                <include>com/xenoamess/**</include>
                             </includes>
                         </configuration>
                     </execution>
@@ -167,7 +184,9 @@
                             <classifier>${native.platform}</classifier>
                             <classesDirectory>${project.build.outputDirectory}</classesDirectory>
                             <includes>
-                                <include>**</include>
+                                <include>com/xenoamess/hyperscan_panama/jni/${native.platform}/**</include>
+                                <include>com/xenoamess/hyperscan_panama/jni/*/generated/**</include>
+                                <include>com/xenoamess/hyperscan_panama/jni/*/HyperscanJniImpl.class</include>
                             </includes>
                             <archive>
                                 <manifestEntries>
@@ -225,9 +244,6 @@
                     <family>windows</family>
                 </os>
             </activation>
-            <properties>
-                <jextract.bin>${jextract.dir}/bin/jextract.bat</jextract.bin>
-            </properties>
             <build>
                 <plugins>
                     <plugin>
@@ -240,14 +256,36 @@
                                     <executable>cmd</executable>
                                     <arguments>
                                         <argument>/c</argument>
-                                        <argument>${jextract.bin}</argument>
-                                        <argument>--output</argument>
+                                        <argument>${project.basedir}/run-jextract.bat</argument>
+                                        <argument>${native.platform}</argument>
+                                        <argument>${jextract.dir}/bin/jextract.bat</argument>
                                         <argument>${jextract.output}</argument>
-                                        <argument>--target-package</argument>
-                                        <argument>com.xenoamess.hyperscan_panama.jni.generated</argument>
-                                        <argument>-I</argument>
                                         <argument>${project.basedir}/cppbuild/include</argument>
                                         <argument>${project.basedir}/src/main/java/com/xenoamess/hyperscan_panama/jni/hyperscan</argument>
+                                    </arguments>
+                                </configuration>
+                            </execution>
+                            <execution>
+                                <id>fix-jextract-shared</id>
+                                <configuration>
+                                    <executable>bash</executable>
+                                    <arguments>
+                                        <argument>${project.basedir}/fix-jextract-shared.sh</argument>
+                                        <argument>${native.platform}</argument>
+                                        <argument>${jextract.output}</argument>
+                                    </arguments>
+                                </configuration>
+                            </execution>
+                            <execution>
+                                <id>generate-hyperscan-jni-impl</id>
+                                <configuration>
+                                    <executable>cmd</executable>
+                                    <arguments>
+                                        <argument>/c</argument>
+                                        <argument>${project.basedir}/generate-hyperscan-jni-impl.bat</argument>
+                                        <argument>${native.platform}</argument>
+                                        <argument>${project.basedir}/src/main/template/HyperscanJniImpl.java.template</argument>
+                                        <argument>${jextract.output}</argument>
                                     </arguments>
                                 </configuration>
                             </execution>

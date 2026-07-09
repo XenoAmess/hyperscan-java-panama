@@ -7,9 +7,18 @@
 set -eu
 set -o pipefail
 
-SHARED_FILE="${1:-target/generated-sources/com/xenoamess/hyperscan_panama/jni/hyperscan$shared.java}"
-PLATFORM="${DETECTED_PLATFORM:-unknown}"
+PLATFORM="${1:-${DETECTED_PLATFORM:-unknown}}"
+OUTPUT_DIR="${2:-target/generated-sources}"
 
+HYPHEN_COUNT=$(awk -F- '{print NF-1}' <<< "$PLATFORM")
+if [ "$HYPHEN_COUNT" -ge 2 ]; then
+    PLATFORM_FAMILY="${PLATFORM%-*}"
+else
+    PLATFORM_FAMILY="$PLATFORM"
+fi
+PLATFORM_PACKAGE="${PLATFORM_FAMILY//-/_}"
+
+SHARED_FILE="${OUTPUT_DIR}/com/xenoamess/hyperscan_panama/jni/${PLATFORM_PACKAGE}/generated/hyperscan\$shared.java"
 if [ ! -f "$SHARED_FILE" ]; then
   echo "WARNING: $SHARED_FILE not found, skipping C_LONG fix" >&2
   exit 0

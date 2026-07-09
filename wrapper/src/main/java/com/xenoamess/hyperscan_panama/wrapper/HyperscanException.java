@@ -1,7 +1,6 @@
 package com.xenoamess.hyperscan_panama.wrapper;
 
 import com.xenoamess.hyperscan_panama.jni.HyperscanNativeLoader;
-import com.xenoamess.hyperscan_panama.jni.generated.hyperscan;
 
 /**
  * Exception thrown when a Hyperscan operation fails.

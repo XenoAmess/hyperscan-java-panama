@@ -1,0 +1,202 @@
+package com.xenoamess.hyperscan_panama.jni.@PLATFORM_PACKAGE@;
+
+import com.xenoamess.hyperscan_panama.jni.HyperscanJni;
+import com.xenoamess.hyperscan_panama.jni.@PLATFORM_PACKAGE@.generated.hyperscan;
+import com.xenoamess.hyperscan_panama.jni.@PLATFORM_PACKAGE@.generated.hs_compile_error;
+import com.xenoamess.hyperscan_panama.jni.@PLATFORM_PACKAGE@.generated.match_event_handler;
+
+import java.lang.foreign.Arena;
+import java.lang.foreign.GroupLayout;
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
+
+/**
+ * Platform-specific implementation of {@link HyperscanJni} for the @PLATFORM_PACKAGE@ platform.
+ */
+public final class HyperscanJniImpl implements HyperscanJni {
+
+    @Override
+    public int hsSuccess() {
+        return hyperscan.HS_SUCCESS();
+    }
+
+    @Override
+    public int hsCompilerError() {
+        return hyperscan.HS_COMPILER_ERROR();
+    }
+
+    @Override
+    public int hsScanTerminated() {
+        return hyperscan.HS_SCAN_TERMINATED();
+    }
+
+    @Override
+    public int hsModeBlock() {
+        return hyperscan.HS_MODE_BLOCK();
+    }
+
+    @Override
+    public int hsFlagCaseless() {
+        return hyperscan.HS_FLAG_CASELESS();
+    }
+
+    @Override
+    public int hsFlagDotall() {
+        return hyperscan.HS_FLAG_DOTALL();
+    }
+
+    @Override
+    public int hsFlagMultiline() {
+        return hyperscan.HS_FLAG_MULTILINE();
+    }
+
+    @Override
+    public int hsFlagSinglematch() {
+        return hyperscan.HS_FLAG_SINGLEMATCH();
+    }
+
+    @Override
+    public int hsFlagAllowempty() {
+        return hyperscan.HS_FLAG_ALLOWEMPTY();
+    }
+
+    @Override
+    public int hsFlagUtf8() {
+        return hyperscan.HS_FLAG_UTF8();
+    }
+
+    @Override
+    public int hsFlagUcp() {
+        return hyperscan.HS_FLAG_UCP();
+    }
+
+    @Override
+    public int hsFlagPrefilter() {
+        return hyperscan.HS_FLAG_PREFILTER();
+    }
+
+    @Override
+    public int hsFlagSomLeftmost() {
+        return hyperscan.HS_FLAG_SOM_LEFTMOST();
+    }
+
+    @Override
+    public int hsFlagCombination() {
+        return hyperscan.HS_FLAG_COMBINATION();
+    }
+
+    @Override
+    public int hsFlagQuiet() {
+        return hyperscan.HS_FLAG_QUIET();
+    }
+
+    @Override
+    public ValueLayout size_t() {
+        return hyperscan.size_t;
+    }
+
+    @Override
+    public long readSize_t(MemorySegment segment, long offset) {
+        ValueLayout layout = hyperscan.size_t;
+        if (layout instanceof ValueLayout.OfLong) {
+            return segment.get((ValueLayout.OfLong) layout, offset);
+        }
+        if (layout instanceof ValueLayout.OfInt) {
+            return segment.get((ValueLayout.OfInt) layout, offset) & 0xFFFFFFFFL;
+        }
+        throw new AssertionError("Unsupported size_t layout: " + layout);
+    }
+
+    @Override
+    public GroupLayout hsCompileErrorLayout() {
+        return hs_compile_error.layout();
+    }
+
+    @Override
+    public MemorySegment hsCompileErrorMessage(MemorySegment error) {
+        return hs_compile_error.message(error);
+    }
+
+    @Override
+    public int hsCompileErrorExpression(MemorySegment error) {
+        return hs_compile_error.expression(error);
+    }
+
+    @Override
+    public int hsFreeDatabase(MemorySegment db) {
+        return hyperscan.hs_free_database(db);
+    }
+
+    @Override
+    public int hsCompileMulti(MemorySegment expressions, MemorySegment flags, MemorySegment ids, int elements, int mode, MemorySegment platform, MemorySegment db, MemorySegment error) {
+        return hyperscan.hs_compile_multi(expressions, flags, ids, elements, mode, platform, db, error);
+    }
+
+    @Override
+    public int hsDatabaseSize(MemorySegment database, MemorySegment databaseSize) {
+        return hyperscan.hs_database_size(database, databaseSize);
+    }
+
+    @Override
+    public int hsSerializeDatabase(MemorySegment db, MemorySegment bytes, MemorySegment length) {
+        return hyperscan.hs_serialize_database(db, bytes, length);
+    }
+
+    @Override
+    public int hsDeserializeDatabase(MemorySegment bytes, long length, MemorySegment db) {
+        return hyperscan.hs_deserialize_database(bytes, length, db);
+    }
+
+    @Override
+    public int hsFreeCompileError(MemorySegment error) {
+        return hyperscan.hs_free_compile_error(error);
+    }
+
+    @Override
+    public int hsExpressionInfo(MemorySegment expression, int flags, MemorySegment info, MemorySegment error) {
+        return hyperscan.hs_expression_info(expression, flags, info, error);
+    }
+
+    @Override
+    public int hsFreeScratch(MemorySegment scratch) {
+        return hyperscan.hs_free_scratch(scratch);
+    }
+
+    @Override
+    public MemorySegment hsVersion() {
+        return hyperscan.hs_version();
+    }
+
+    @Override
+    public int hsValidPlatform() {
+        return hyperscan.hs_valid_platform();
+    }
+
+    @Override
+    public int hsScratchSize(MemorySegment scratch, MemorySegment scratchSize) {
+        return hyperscan.hs_scratch_size(scratch, scratchSize);
+    }
+
+    @Override
+    public int hsAllocScratch(MemorySegment db, MemorySegment scratch) {
+        return hyperscan.hs_alloc_scratch(db, scratch);
+    }
+
+    @Override
+    public int hsScan(MemorySegment db, MemorySegment data, int length, int flags, MemorySegment scratch, MemorySegment onEvent, MemorySegment context) {
+        return hyperscan.hs_scan(db, data, length, flags, scratch, onEvent, context);
+    }
+
+    @Override
+    public void free(MemorySegment ptr) {
+        hyperscan.free(ptr);
+    }
+
+    @Override
+    public MemorySegment allocateMatchEventHandler(MatchEventCallback callback, Arena arena) {
+        return match_event_handler.allocate(
+                (id, from, to, flags, context) -> callback.onMatch(id, from, to, flags),
+                arena
+        );
+    }
+}

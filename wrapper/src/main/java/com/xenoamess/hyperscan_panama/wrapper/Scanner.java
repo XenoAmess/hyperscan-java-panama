@@ -1,8 +1,7 @@
 package com.xenoamess.hyperscan_panama.wrapper;
 
+import com.xenoamess.hyperscan_panama.jni.HyperscanJni;
 import com.xenoamess.hyperscan_panama.jni.HyperscanNativeLoader;
-import com.xenoamess.hyperscan_panama.jni.generated.hyperscan;
-import com.xenoamess.hyperscan_panama.jni.generated.match_event_handler;
 import com.xenoamess.hyperscan_panama.wrapper.mapping.ByteCharMapping;
 
 import java.io.Closeable;
@@ -23,11 +22,13 @@ public class Scanner implements Closeable {
         HyperscanNativeLoader.load();
     }
 
+    private static final HyperscanJni JNI = HyperscanNativeLoader.loadJni();
+
     private static final ThreadLocal<RawMatchEventHandler> activeCallback = new ThreadLocal<>();
 
     private static final Arena CALLBACK_ARENA = Arena.global();
-    private static final MemorySegment MATCH_HANDLER = match_event_handler.allocate(
-            (id, from, to, flags, context) -> {
+    private static final MemorySegment MATCH_HANDLER = JNI.allocateMatchEventHandler(
+            (id, from, to, flags) -> {
                 RawMatchEventHandler handler = activeCallback.get();
                 return handler.onMatch(id, from, to, flags) ? 0 : -1;
             }, CALLBACK_ARENA);
@@ -58,7 +59,7 @@ public class Scanner implements Closeable {
         @Override
         public synchronized void run() {
             if (scratch != null && scratch.address() != 0) {
-                hyperscan.hs_free_scratch(scratch);
+                JNI.hsFreeScratch(scratch);
                 scratch = null;
             }
         }
@@ -70,11 +71,11 @@ public class Scanner implements Closeable {
     }
 
     public static boolean getIsValidPlatform() {
-        return hyperscan.hs_valid_platform() == 0;
+        return JNI.hsValidPlatform() == 0;
     }
 
     public static String getVersion() {
-        MemorySegment version = hyperscan.hs_version();
+        MemorySegment version = JNI.hsVersion();
         try (Arena arena = Arena.ofConfined()) {
             return version.reinterpret(256, arena, null).getString(0);
         }
@@ -83,12 +84,12 @@ public class Scanner implements Closeable {
     public long getSize() {
         MemorySegment scratch = state.getScratch();
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment size = arena.allocate(hyperscan.size_t);
-            int hsError = hyperscan.hs_scratch_size(scratch, size);
+            MemorySegment size = arena.allocate(JNI.size_t());
+            int hsError = JNI.hsScratchSize(scratch, size);
             if (hsError != 0) {
                 throw HyperscanException.hsErrorToException(hsError);
             }
-            return size.get(hyperscan.size_t, 0);
+            return JNI.readSize_t(size, 0);
         }
     }
 
@@ -100,7 +101,7 @@ public class Scanner implements Closeable {
                 if (currentScratch.address() != 0) {
                     scratchOut.set(ValueLayout.ADDRESS, 0, currentScratch);
                 }
-                int hsError = hyperscan.hs_alloc_scratch(db.getDatabase(), scratchOut);
+                int hsError = JNI.hsAllocScratch(db.getDatabase(), scratchOut);
                 if (hsError != 0) {
                     throw HyperscanException.hsErrorToException(hsError);
                 }
@@ -187,8 +188,8 @@ public class Scanner implements Closeable {
             if (scratch.address() == 0) {
                 throw new IllegalStateException("Scratch space has not been allocated. Call allocScratch() before scanning.");
             }
-            int hsError = hyperscan.hs_scan(database, data, length, 0, scratch, MATCH_HANDLER, MemorySegment.NULL);
-            if (hsError != 0 && hsError != hyperscan.HS_SCAN_TERMINATED()) {
+            int hsError = JNI.hsScan(database, data, length, 0, scratch, MATCH_HANDLER, MemorySegment.NULL);
+            if (hsError != 0 && hsError != JNI.hsScanTerminated()) {
                 throw HyperscanException.hsErrorToException(hsError);
             }
             return hsError;
@@ -223,7 +224,7 @@ public class Scanner implements Closeable {
         RawMatchEventHandler terminationHandler = (expressionId, fromByteIdx, toByteIdx, flags) -> false;
 
         int hsError = scanRaw(db, input, terminationHandler);
-        return hsError == hyperscan.HS_SCAN_TERMINATED();
+        return hsError == JNI.hsScanTerminated();
     }
 
     public boolean hasMatch(final Database db, final byte[] input) {
@@ -247,7 +248,7 @@ public class Scanner implements Closeable {
             MemorySegment data = arena.allocate(length);
             data.copyFrom(source);
             int hsError = scanRaw(db, data, length, terminationHandler);
-            return hsError == hyperscan.HS_SCAN_TERMINATED();
+            return hsError == JNI.hsScanTerminated();
         }
     }
 

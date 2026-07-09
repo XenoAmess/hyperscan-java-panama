@@ -1,8 +1,7 @@
 package com.xenoamess.hyperscan_panama.wrapper;
 
+import com.xenoamess.hyperscan_panama.jni.HyperscanJni;
 import com.xenoamess.hyperscan_panama.jni.HyperscanNativeLoader;
-import com.xenoamess.hyperscan_panama.jni.generated.hyperscan;
-import com.xenoamess.hyperscan_panama.jni.generated.hs_compile_error;
 import lombok.*;
 
 import java.lang.foreign.Arena;
@@ -19,6 +18,8 @@ public class Expression {
     static {
         HyperscanNativeLoader.load();
     }
+
+    private static final HyperscanJni JNI = HyperscanNativeLoader.loadJni();
 
     @Getter @NonNull private final String expression;
     @Getter private final EnumSet<ExpressionFlag> flags;
@@ -120,12 +121,12 @@ public class Expression {
             MemorySegment info = arena.allocate(ValueLayout.ADDRESS);
             MemorySegment error = arena.allocate(ValueLayout.ADDRESS);
 
-            int hsResult = hyperscan.hs_expression_info(expressionPtr, getFlagBits(), info, error);
+            int hsResult = JNI.hsExpressionInfo(expressionPtr, getFlagBits(), info, error);
 
             if (hsResult != 0) {
                 MemorySegment errorPtr = error.get(ValueLayout.ADDRESS, 0);
                 String message = readErrorMessage(errorPtr);
-                hyperscan.hs_free_compile_error(errorPtr);
+                JNI.hsFreeCompileError(errorPtr);
                 return new ValidationResult(message, false);
             } else {
                 MemorySegment infoPtr = info.get(ValueLayout.ADDRESS, 0);
@@ -140,8 +141,8 @@ public class Expression {
         if (errorPtr.address() == 0) {
             return null;
         }
-        MemorySegment readableError = errorPtr.reinterpret(hs_compile_error.layout().byteSize());
-        MemorySegment messagePtr = hs_compile_error.message(readableError);
+        MemorySegment readableError = errorPtr.reinterpret(JNI.hsCompileErrorLayout().byteSize());
+        MemorySegment messagePtr = JNI.hsCompileErrorMessage(readableError);
         if (messagePtr == null || messagePtr.address() == 0) {
             return null;
         }

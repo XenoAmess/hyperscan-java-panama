@@ -28,6 +28,7 @@ public final class HyperscanNativeLoader {
     private static final String RESOURCE_BASE = "com/xenoamess/hyperscan_panama/jni";
 
     private static volatile boolean loaded = false;
+    private static volatile HyperscanJni jni;
 
     private HyperscanNativeLoader() {
     }
@@ -57,6 +58,56 @@ public final class HyperscanNativeLoader {
         loadLibrary(platform, "hs_runtime", tempDir);
 
         loaded = true;
+    }
+
+    /**
+     * Loads the native libraries and the platform-specific {@link HyperscanJni}
+     * implementation. This method is idempotent and thread-safe.
+     *
+     * @return the platform-specific HyperscanJni implementation
+     */
+    public static synchronized HyperscanJni loadJni() {
+        if (jni == null) {
+            load();
+
+            String platform = System.getProperty(PLATFORM_PROPERTY);
+            if (platform == null || platform.isEmpty()) {
+                platform = selectPlatform();
+            }
+            if (platform == null) {
+                throw new UnsatisfiedLinkError(
+                        "Unable to determine a supported hyperscan platform for this system"
+                );
+            }
+
+            String family = selectPlatformFamily(platform);
+            String implClass = "com.xenoamess.hyperscan_panama.jni."
+                    + family.replace('-', '_')
+                    + ".HyperscanJniImpl";
+            try {
+                Class<?> cls = Class.forName(implClass);
+                jni = (HyperscanJni) cls.getConstructor().newInstance();
+            } catch (Exception e) {
+                throw new IllegalStateException(
+                        "Failed to load HyperscanJni implementation for platform: " + platform,
+                        e
+                );
+            }
+        }
+        return jni;
+    }
+
+    /**
+     * Returns the platform family (e.g. {@code linux-x86_64}) for a full platform
+     * identifier (e.g. {@code linux-x86_64-avx2}).
+     */
+    public static String selectPlatformFamily(String platform) {
+        int lastDash = platform.lastIndexOf('-');
+        int secondLastDash = platform.lastIndexOf('-', lastDash - 1);
+        if (secondLastDash < 0) {
+            return platform;
+        }
+        return platform.substring(0, lastDash);
     }
 
     /**

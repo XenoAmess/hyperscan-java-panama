@@ -1,8 +1,7 @@
 package com.xenoamess.hyperscan_panama.wrapper;
 
+import com.xenoamess.hyperscan_panama.jni.HyperscanJni;
 import com.xenoamess.hyperscan_panama.jni.HyperscanNativeLoader;
-import com.xenoamess.hyperscan_panama.jni.generated.hs_compile_error;
-import com.xenoamess.hyperscan_panama.jni.generated.hyperscan;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
 
@@ -23,6 +22,8 @@ public class Database implements Closeable {
     static {
         HyperscanNativeLoader.load();
     }
+
+    private static final HyperscanJni JNI = HyperscanNativeLoader.loadJni();
 
     private static final java.lang.ref.Cleaner CLEANER = java.lang.ref.Cleaner.create();
 
@@ -49,7 +50,7 @@ public class Database implements Closeable {
         @Override
         public synchronized void run() {
             if (database != null) {
-                hyperscan.hs_free_database(database);
+                JNI.hsFreeDatabase(database);
                 database = null;
             }
         }
@@ -80,8 +81,8 @@ public class Database implements Closeable {
         if (errorPtr.address() == 0) {
             return null;
         }
-        MemorySegment readableError = errorPtr.reinterpret(hs_compile_error.layout().byteSize());
-        MemorySegment messagePtr = hs_compile_error.message(readableError);
+        MemorySegment readableError = errorPtr.reinterpret(JNI.hsCompileErrorLayout().byteSize());
+        MemorySegment messagePtr = JNI.hsCompileErrorMessage(readableError);
         if (messagePtr == null || messagePtr.address() == 0) {
             return null;
         }
@@ -96,15 +97,15 @@ public class Database implements Closeable {
             return;
         }
 
-        MemorySegment readableError = error.reinterpret(hs_compile_error.layout().byteSize());
+        MemorySegment readableError = error.reinterpret(JNI.hsCompileErrorLayout().byteSize());
         String message = readErrorMessage(error);
-        if (hsError == hyperscan.HS_COMPILER_ERROR()) {
-            int expressionIndex = hs_compile_error.expression(readableError);
+        if (hsError == JNI.hsCompilerError()) {
+            int expressionIndex = JNI.hsCompileErrorExpression(readableError);
             Expression expression = expressionIndex < 0 ? null : expressions.get(expressionIndex);
-            hyperscan.hs_free_compile_error(error);
+            JNI.hsFreeCompileError(error);
             throw new CompileErrorException(message, expression);
         } else {
-            hyperscan.hs_free_compile_error(error);
+            JNI.hsFreeCompileError(error);
             throw HyperscanException.hsErrorToException(hsError);
         }
     }
@@ -153,12 +154,12 @@ public class Database implements Closeable {
             MemorySegment error = arena.allocate(ValueLayout.ADDRESS);
             MemorySegment db = arena.allocate(ValueLayout.ADDRESS);
 
-            int hsError = hyperscan.hs_compile_multi(
+            int hsError = JNI.hsCompileMulti(
                     nativeExpressions.getExpressionsBytes(),
                     nativeExpressions.getNativeFlags(),
                     nativeExpressions.getNativeIds(),
                     nativeExpressions.getSize(),
-                    hyperscan.HS_MODE_BLOCK(),
+                    JNI.hsModeBlock(),
                     MemorySegment.NULL,
                     db,
                     error);
@@ -187,12 +188,12 @@ public class Database implements Closeable {
         MemorySegment database = state.getDatabase();
 
         try (Arena arena = Arena.ofConfined()) {
-            MemorySegment size = arena.allocate(hyperscan.size_t);
-            int hsError = hyperscan.hs_database_size(database, size);
+            MemorySegment size = arena.allocate(JNI.size_t());
+            int hsError = JNI.hsDatabaseSize(database, size);
             if (hsError != 0) {
                 throw HyperscanException.hsErrorToException(hsError);
             }
-            return size.get(hyperscan.size_t, 0);
+            return JNI.readSize_t(size, 0);
         }
     }
 
@@ -257,13 +258,13 @@ public class Database implements Closeable {
         MemorySegment database = state.getDatabase();
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment bytesOut = arena.allocate(ValueLayout.ADDRESS);
-            MemorySegment size = arena.allocate(hyperscan.size_t);
-            int hsError = hyperscan.hs_serialize_database(database, bytesOut, size);
+            MemorySegment size = arena.allocate(JNI.size_t());
+            int hsError = JNI.hsSerializeDatabase(database, bytesOut, size);
             if (hsError != 0) {
                 throw HyperscanException.hsErrorToException(hsError);
             }
 
-            long length = size.get(hyperscan.size_t, 0);
+            long length = JNI.readSize_t(size, 0);
             MemorySegment bytes = bytesOut.get(ValueLayout.ADDRESS, 0).reinterpret(length);
 
             DataOutputStream databaseDataOut = new DataOutputStream(databaseOut);
@@ -273,7 +274,7 @@ public class Database implements Closeable {
 
             // The library allocated the serialized buffer with its default allocator;
             // free it with the standard C free().
-            hyperscan.free(bytes);
+            JNI.free(bytes);
         }
     }
 
@@ -332,7 +333,7 @@ public class Database implements Closeable {
             bytePtr.copyFrom(MemorySegment.ofArray(bytes));
 
             MemorySegment db = arena.allocate(ValueLayout.ADDRESS);
-            int hsError = hyperscan.hs_deserialize_database(bytePtr, length, db);
+            int hsError = JNI.hsDeserializeDatabase(bytePtr, (long) length, db);
             if (hsError != 0) {
                 throw HyperscanException.hsErrorToException(hsError);
             }
