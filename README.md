@@ -31,7 +31,7 @@ Add the dependency to your `pom.xml`:
 <dependency>
     <groupId>com.xenoamess.hyperscan_panama</groupId>
     <artifactId>hyperscan-java-panama</artifactId>
-    <version>5.4.11-rc1</version>
+    <version>5.4.11-rc2</version>
 </dependency>
 ```
 
