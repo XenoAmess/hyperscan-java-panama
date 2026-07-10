@@ -31,7 +31,7 @@
 <dependency>
     <groupId>com.xenoamess.hyperscan_panama</groupId>
     <artifactId>hyperscan-java-panama</artifactId>
-    <version>5.4.12-rc2</version>
+    <version>5.4.12-rc3</version>
 </dependency>
 ```
 
