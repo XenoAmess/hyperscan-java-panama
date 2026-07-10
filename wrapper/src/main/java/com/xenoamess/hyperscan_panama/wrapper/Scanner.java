@@ -27,6 +27,8 @@ public class Scanner implements Closeable {
     private static final ThreadLocal<RawMatchEventHandler> activeCallback = new ThreadLocal<>();
 
     private static final Arena CALLBACK_ARENA = Arena.global();
+    private static final Arena SCAN_BUFFER_ARENA = Arena.global();
+    private static final ThreadLocal<MemorySegment> SCAN_BUFFER = ThreadLocal.withInitial(() -> MemorySegment.NULL);
     private static final MemorySegment MATCH_HANDLER = JNI.allocateMatchEventHandler(
             (id, from, to, flags) -> {
                 RawMatchEventHandler handler = activeCallback.get();
@@ -158,12 +160,19 @@ public class Scanner implements Closeable {
         );
     }
 
-    private int scanRaw(final Database db, final byte[] data, RawMatchEventHandler eventHandler) {
-        try (Arena arena = Arena.ofConfined()) {
-            MemorySegment segment = arena.allocate(data.length);
-            segment.copyFrom(MemorySegment.ofArray(data));
-            return scanRaw(db, segment, data.length, eventHandler);
+    private static MemorySegment getScanBuffer(byte[] data) {
+        MemorySegment buffer = SCAN_BUFFER.get();
+        if (buffer == MemorySegment.NULL || buffer.byteSize() < data.length) {
+            buffer = SCAN_BUFFER_ARENA.allocate(data.length);
+            SCAN_BUFFER.set(buffer);
         }
+        MemorySegment.copy(MemorySegment.ofArray(data), 0, buffer, 0, data.length);
+        return buffer;
+    }
+
+    private int scanRaw(final Database db, final byte[] data, RawMatchEventHandler eventHandler) {
+        MemorySegment segment = getScanBuffer(data);
+        return scanRaw(db, segment, data.length, eventHandler);
     }
 
     private int scanRaw(final Database db, final ByteBuffer input, RawMatchEventHandler eventHandler) {
