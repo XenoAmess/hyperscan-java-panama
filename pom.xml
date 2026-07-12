@@ -43,7 +43,7 @@
         <maven.compiler.release>25</maven.compiler.release>
         <java.version>25</java.version>
 
-        <junit.version>6.1.1</junit.version>
+        <junit.version>6.1.2</junit.version>
         <assertj.version>3.27.7</assertj.version>
         <lombok.version>1.18.46</lombok.version>
         <jmh.version>1.37</jmh.version>
