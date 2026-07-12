@@ -7,6 +7,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -209,6 +210,27 @@ class ScannerTest {
     @Test
     void hasMatch_utf8_shouldReturnTrue() {
         assertTrue(scanner.hasMatch(database, "你好 world".getBytes(StandardCharsets.UTF_8)));
+    }
+
+    @Test
+    void hasMatch_string_nonAscii_shouldWork() {
+        assertTrue(scanner.hasMatch(database, "你好 world"));
+        assertFalse(scanner.hasMatch(database, "完全不同的文本"));
+    }
+
+    @Test
+    void hasMatch_byteBuffer_shouldWork() {
+        ByteBuffer matchBuffer = ByteBuffer.wrap("test".getBytes(StandardCharsets.UTF_8));
+        assertTrue(scanner.hasMatch(database, matchBuffer));
+
+        ByteBuffer noMatchBuffer = ByteBuffer.wrap("no match here".getBytes(StandardCharsets.UTF_8));
+        assertFalse(scanner.hasMatch(database, noMatchBuffer));
+    }
+
+    @Test
+    void getSizeAfterCloseShouldThrow() throws IOException {
+        scanner.close();
+        assertThrows(IllegalStateException.class, () -> scanner.getSize());
     }
 
     @Test

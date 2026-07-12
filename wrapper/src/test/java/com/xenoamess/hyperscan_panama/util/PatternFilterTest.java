@@ -86,6 +86,32 @@ class PatternFilterTest {
         assertEquals(1, matchers.size());
     }
 
+    @Test
+    void close_isSafe() throws CompileErrorException {
+        List<Pattern> patterns = asList(
+                Pattern.compile("test", Pattern.CASE_INSENSITIVE)
+        );
+        PatternFilter filter = new PatternFilter(patterns);
+        assertDoesNotThrow(() -> {
+            filter.close();
+            filter.close();
+        });
+    }
+
+    @Test
+    void handleLiteralAndUnicodeCaseFlags() throws CompileErrorException {
+        List<Pattern> patterns = asList(
+                Pattern.compile("test", Pattern.LITERAL),
+                Pattern.compile("TEST", Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE)
+        );
+        PatternFilter filter = new PatternFilter(patterns);
+
+        List<Matcher> matchers = filter.filter("test");
+        assertHasPattern(patterns.get(0), matchers);
+        assertHasPattern(patterns.get(1), matchers);
+        assertEquals(2, matchers.size());
+    }
+
     private void assertHasPattern(Pattern pattern, List<Matcher> matchers) {
         List<Pattern> filteredPatterns = matchers.stream().map(Matcher::pattern).collect(toList());
         assertTrue(filteredPatterns.contains(pattern));

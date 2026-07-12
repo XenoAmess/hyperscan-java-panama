@@ -159,6 +159,54 @@ class DatabaseTest {
     }
 
     @Test
+    void databaseEqualsAndHashCode() throws CompileErrorException {
+        List<Expression> expressionsOne = Arrays.asList(
+                new Expression("abc", EnumSet.noneOf(ExpressionFlag.class), 1),
+                new Expression("def", EnumSet.noneOf(ExpressionFlag.class), 2)
+        );
+        List<Expression> expressionsTwo = Arrays.asList(
+                new Expression("abc", EnumSet.noneOf(ExpressionFlag.class), 1),
+                new Expression("def", EnumSet.noneOf(ExpressionFlag.class), 2)
+        );
+        List<Expression> expressionsDifferentCount = Collections.singletonList(
+                new Expression("abc", EnumSet.noneOf(ExpressionFlag.class), 1)
+        );
+
+        try (Database db1 = Database.compile(expressionsOne);
+             Database db2 = Database.compile(expressionsTwo);
+             Database db3 = Database.compile(expressionsDifferentCount)) {
+            assertEquals(db1, db2);
+            assertEquals(db1.hashCode(), db2.hashCode());
+
+            assertNotEquals(db1, db3);
+            assertNotEquals(db1, null);
+            assertNotEquals(db1, "not a database");
+        }
+    }
+
+    @Test
+    void saveAndLoadWithSeparateStreams() throws CompileErrorException, IOException {
+        List<Expression> expressionsWithIds = Arrays.asList(
+                new Expression("Word\\d+", EnumSet.of(ExpressionFlag.CASELESS, ExpressionFlag.SOM_LEFTMOST), 100),
+                new Expression("\\d{3}-\\d{2}-\\d{4}", EnumSet.noneOf(ExpressionFlag.class), 200)
+        );
+        try (Database originalDb = Database.compile(expressionsWithIds)) {
+            ByteArrayOutputStream expressionsOut = new ByteArrayOutputStream();
+            ByteArrayOutputStream databaseOut = new ByteArrayOutputStream();
+            originalDb.save(expressionsOut, databaseOut);
+
+            Database loadedDb = Database.load(
+                    new ByteArrayInputStream(expressionsOut.toByteArray()),
+                    new ByteArrayInputStream(databaseOut.toByteArray())
+            );
+
+            assertEquals(originalDb, loadedDb);
+            assertEquals(originalDb.getSize(), loadedDb.getSize());
+            loadedDb.close();
+        }
+    }
+
+    @Test
     void testSerializationDeserializationRoundtrip() throws CompileErrorException, IOException, ClassNotFoundException {
         // 1. Setup expressions with IDs and flags
         List<Expression> expressionsWithIds = Arrays.asList(

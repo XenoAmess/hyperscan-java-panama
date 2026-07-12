@@ -69,6 +69,19 @@ class ExpressionTest {
     }
 
     @Test
+    void constructorWithSingleFlagAndNoIdShouldSucceed() {
+        Expression exp = new Expression("test", ExpressionFlag.CASELESS);
+        assertEquals("test", exp.getExpression());
+        assertEquals(EnumSet.of(ExpressionFlag.CASELESS), exp.getFlags());
+        assertNull(exp.getId());
+    }
+
+    @Test
+    void constructorWithSingleFlagAndNegativeIdShouldThrow() {
+        assertThrows(IllegalArgumentException.class, () -> new Expression("test", ExpressionFlag.CASELESS, -1));
+    }
+
+    @Test
     void equalsAndHashCodeShouldWork() {
         EnumSet<ExpressionFlag> flags1 = EnumSet.of(ExpressionFlag.CASELESS, ExpressionFlag.DOTALL);
         EnumSet<ExpressionFlag> flags2 = EnumSet.of(ExpressionFlag.DOTALL, ExpressionFlag.CASELESS); // Same flags, different order
