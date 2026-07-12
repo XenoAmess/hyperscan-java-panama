@@ -131,6 +131,29 @@ class DatabaseTest {
     }
 
     @Test
+    void compileWithSparseExpressionIds() throws CompileErrorException {
+        List<Expression> sparseExpressions = Arrays.asList(
+                new Expression("a", EnumSet.noneOf(ExpressionFlag.class), 1000),
+                new Expression("b", EnumSet.noneOf(ExpressionFlag.class), 2000)
+        );
+        try (Database db = Database.compile(sparseExpressions)) {
+            assertNotNull(db);
+            assertThat(db.getSize()).isGreaterThan(0);
+
+            Expression expr1000 = db.getExpression(1000);
+            assertNotNull(expr1000);
+            assertEquals("a", expr1000.getExpression());
+
+            Expression expr2000 = db.getExpression(2000);
+            assertNotNull(expr2000);
+            assertEquals("b", expr2000.getExpression());
+
+            assertNull(db.getExpression(1500), "Should return null for ID between expressions");
+            assertNull(db.getExpression(5000), "Should return null for ID beyond sparse range");
+        }
+    }
+
+    @Test
     void getExpressionByIndexWhenNoIdsProvided() throws CompileErrorException {
          // Using the expressions list from setUp which has no IDs
         try (Database db = Database.compile(expressions)) {
@@ -204,6 +227,26 @@ class DatabaseTest {
             assertEquals(originalDb.getSize(), loadedDb.getSize());
             loadedDb.close();
         }
+    }
+
+    @Test
+    void loadCorruptedDatabaseShouldThrow() throws IOException {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        DataOutputStream dataOut = new DataOutputStream(baos);
+
+        // Write 1 expression
+        dataOut.writeInt(1);
+        dataOut.writeInt(-1); // id -1 means no id
+        dataOut.writeUTF("test");
+        dataOut.writeInt(0); // no flags
+
+        // Write invalid database bytes
+        dataOut.writeInt(4);
+        dataOut.write(new byte[]{0, 0, 0, 0});
+        dataOut.flush();
+
+        ByteArrayInputStream bais = new ByteArrayInputStream(baos.toByteArray());
+        assertThrows(HyperscanException.class, () -> Database.load(bais));
     }
 
     @Test

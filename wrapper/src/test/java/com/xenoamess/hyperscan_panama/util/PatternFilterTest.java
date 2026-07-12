@@ -9,6 +9,7 @@ import java.util.regex.Pattern;
 
 import static java.util.Arrays.asList;
 import static java.util.stream.Collectors.toList;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
 
 class PatternFilterTest {
@@ -48,6 +49,39 @@ class PatternFilterTest {
         List<Matcher> matchers = filter.filter("The color is orange");
 
         assertHasPattern(patterns.get(1), matchers);
+    }
+
+    @Test
+    void handleNonFilterablePatterns() throws CompileErrorException {
+        Pattern filterablePattern = Pattern.compile("hello");
+        // Backreference is valid Java regex but not supported by Hyperscan PREFILTER mode
+        Pattern nonFilterablePattern = Pattern.compile("(hello)\\1");
+
+        PatternFilter filter = new PatternFilter(asList(filterablePattern, nonFilterablePattern));
+
+        // Input matches both patterns, but the non-filterable one must still be returned
+        List<Matcher> matchers = filter.filter("hellohello");
+        assertThat(matchers).anyMatch(matcher -> matcher.pattern().equals(nonFilterablePattern));
+        assertThat(matchers).anyMatch(matcher -> matcher.pattern().equals(filterablePattern));
+
+        // Confirm the non-filterable pattern actually matches using Java regex
+        Matcher nonFilterableMatcher = matchers.stream()
+                .filter(matcher -> matcher.pattern().equals(nonFilterablePattern))
+                .findFirst()
+                .orElseThrow();
+        assertTrue(nonFilterableMatcher.find());
+    }
+
+    @Test
+    void handleAllNonFilterablePatterns() throws CompileErrorException {
+        Pattern p1 = Pattern.compile("(test)\\1");
+        Pattern p2 = Pattern.compile("(?<name>test)");
+
+        PatternFilter filter = new PatternFilter(asList(p1, p2));
+
+        // All patterns are not filterable, so all should be returned for verification
+        List<Matcher> matchers = filter.filter("testtest");
+        assertThat(matchers).hasSize(2);
     }
 
     @Test

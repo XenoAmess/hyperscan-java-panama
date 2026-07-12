@@ -133,6 +133,101 @@ class ScannerTest {
     }
 
     @Test
+    void scanStringWithHandler_utf8_shouldInvokeHandler() throws CompileErrorException {
+        String text = "Say 你好 world";
+        AtomicInteger matchCount = new AtomicInteger(0);
+        final List<String> matchedExprs = new ArrayList<>();
+
+        List<Expression> utfExpressions = Arrays.asList(expressions.get(3), expressions.get(4));
+        try (Database utfDb = Database.compile(utfExpressions)) {
+            scanner.allocScratch(utfDb);
+
+            StringMatchEventHandler handler = (expression, from, to) -> {
+                matchCount.incrementAndGet();
+                matchedExprs.add(expression.getExpression());
+                return true;
+            };
+
+            scanner.scan(utfDb, text, handler);
+
+            assertThat(matchCount.get()).isEqualTo(2);
+            assertThat(matchedExprs).containsExactlyInAnyOrder("world", "你好");
+
+            scanner.allocScratch(database);
+        }
+    }
+
+    @Test
+    void hasMatch_byteBuffer_heap_shouldWork() {
+        ByteBuffer matchBuffer = ByteBuffer.allocate("test".getBytes(StandardCharsets.UTF_8).length);
+        matchBuffer.put("test".getBytes(StandardCharsets.UTF_8));
+        matchBuffer.flip();
+        assertTrue(scanner.hasMatch(database, matchBuffer));
+
+        ByteBuffer noMatchBuffer = ByteBuffer.allocate("no match here".getBytes(StandardCharsets.UTF_8).length);
+        noMatchBuffer.put("no match here".getBytes(StandardCharsets.UTF_8));
+        noMatchBuffer.flip();
+        assertFalse(scanner.hasMatch(database, noMatchBuffer));
+    }
+
+    @Test
+    void scanString_nonSom_shouldReturnEmptyMatchedString() throws CompileErrorException {
+        Expression expression = new Expression("test", ExpressionFlag.CASELESS, 101);
+        try (Database db = Database.compile(expression)) {
+            scanner.allocScratch(db);
+            String text = "12345 test string";
+            List<Match> matches = scanner.scan(db, text);
+
+            assertThat(matches).hasSize(1);
+            Match match = matches.get(0);
+            assertThat(match.getMatchedString()).isEmpty();
+            assertThat(match.getStartPosition()).isEqualTo(0);
+            assertThat(match.getEndPosition()).isEqualTo(9);
+
+            scanner.allocScratch(database);
+        }
+    }
+
+    @Test
+    void scanString_utf8_nonSom_shouldReturnEmptyMatchedString() throws CompileErrorException {
+        Expression expression = new Expression("你好", EnumSet.of(ExpressionFlag.CASELESS, ExpressionFlag.UTF8), 102);
+        try (Database db = Database.compile(expression)) {
+            scanner.allocScratch(db);
+            String text = "Say 你好 world";
+            List<Match> matches = scanner.scan(db, text);
+
+            assertThat(matches).hasSize(1);
+            Match match = matches.get(0);
+            assertThat(match.getMatchedString()).isEmpty();
+
+            scanner.allocScratch(database);
+        }
+    }
+
+    @Test
+    void allocScratch_reallocateForDifferentDatabase() throws CompileErrorException {
+        Expression exprA = new Expression("a", ExpressionFlag.SOM_LEFTMOST, 500);
+        Expression exprB = new Expression("b", ExpressionFlag.SOM_LEFTMOST, 501);
+
+        try (
+                Database dbA = Database.compile(exprA);
+                Database dbB = Database.compile(exprB)
+        ) {
+            scanner.allocScratch(dbA);
+            List<Match> matchesA = scanner.scan(dbA, "a");
+            assertThat(matchesA).hasSize(1);
+            assertThat(matchesA.get(0)).satisfies(m -> assertMatchById(m, 0, 0, 500));
+
+            scanner.allocScratch(dbB);
+            List<Match> matchesB = scanner.scan(dbB, "b");
+            assertThat(matchesB).hasSize(1);
+            assertThat(matchesB.get(0)).satisfies(m -> assertMatchById(m, 0, 0, 501));
+
+            scanner.allocScratch(database);
+        }
+    }
+
+    @Test
     void scanStringWithHandler_terminating_shouldStopEarly() {
         String text = "Test example789 world"; // Matches: Test, example789, world
         AtomicInteger matchCount = new AtomicInteger(0);
