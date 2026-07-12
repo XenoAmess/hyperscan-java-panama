@@ -38,16 +38,43 @@ public class Scanner implements Closeable {
 
     private static final HyperscanJni JNI = HyperscanNativeLoader.loadJni();
 
-    private static final ThreadLocal<RawMatchEventHandler> activeCallback = new ThreadLocal<>();
-
     private static final Arena CALLBACK_ARENA = Arena.global();
     private static final Arena SCAN_BUFFER_ARENA = Arena.global();
     private static final ThreadLocal<MemorySegment> SCAN_BUFFER = ThreadLocal.withInitial(() -> MemorySegment.NULL);
+
+    private static final class CallbackContext {
+        Database db;
+        ByteMatchEventHandler byteHandler;
+        StringMatchEventHandler stringHandler;
+        RawMatchEventHandler rawHandler;
+        ByteCharMapping mapping;
+        boolean inUse;
+    }
+
+    private static final ThreadLocal<CallbackContext> ACTIVE_CONTEXT = ThreadLocal.withInitial(CallbackContext::new);
+
     private static final MemorySegment MATCH_HANDLER = JNI.allocateMatchEventHandler(
             (id, from, to, flags) -> {
-                RawMatchEventHandler handler = activeCallback.get();
-                return handler.onMatch(id, from, to, flags) ? 0 : -1;
+                CallbackContext ctx = ACTIVE_CONTEXT.get();
+                if (ctx.rawHandler != null) {
+                    return ctx.rawHandler.onMatch(id, from, to, flags) ? 0 : -1;
+                }
+                if (ctx.byteHandler != null) {
+                    return ctx.byteHandler.onMatch(ctx.db.getExpression(id), from, to) ? 0 : -1;
+                }
+                if (ctx.stringHandler != null) {
+                    Expression expression = ctx.db.getExpression(id);
+                    long fromStringIndex = ctx.mapping != null ? ctx.mapping.getCharIndex((int) from) : from;
+                    long toStringIndex = 0;
+                    if (to > 0) {
+                        toStringIndex = ctx.mapping != null ? ctx.mapping.getCharIndex((int) (to - 1)) : to - 1;
+                    }
+                    return ctx.stringHandler.onMatch(expression, fromStringIndex, toStringIndex) ? 0 : -1;
+                }
+                return 0;
             }, CALLBACK_ARENA);
+
+    private static final RawMatchEventHandler TERMINATION_HANDLER = (expressionId, fromByteIdx, toByteIdx, flags) -> false;
 
     private static final java.lang.ref.Cleaner CLEANER = java.lang.ref.Cleaner.create();
 
@@ -55,20 +82,20 @@ public class Scanner implements Closeable {
     private final java.lang.ref.Cleaner.Cleanable cleanable;
 
     private static class State implements Runnable {
-        private MemorySegment scratch;
+        private volatile MemorySegment scratch;
 
         State() {
             this.scratch = MemorySegment.NULL;
         }
 
-        synchronized MemorySegment getScratch() {
+        MemorySegment getScratch() {
             if (scratch == null) {
                 throw new IllegalStateException("Scratch space has already been deallocated");
             }
             return scratch;
         }
 
-        synchronized void setScratch(MemorySegment scratch) {
+        void setScratch(MemorySegment scratch) {
             this.scratch = scratch;
         }
 
@@ -129,49 +156,61 @@ public class Scanner implements Closeable {
     public List<Match> scan(final Database db, final String input) {
         final ArrayList<Match> matches = new ArrayList<>();
 
-        scan(db, input, (expression, fromStringIndexLong, toStringIndexLong) -> {
+        CallbackContext ctx = ACTIVE_CONTEXT.get();
+        ctx.db = db;
+        ctx.stringHandler = (expression, fromStringIndexLong, toStringIndexLong) -> {
             if (expression.getFlags().contains(ExpressionFlag.SOM_LEFTMOST)) {
                 matches.add(new Match(input, (int) fromStringIndexLong, (int) toStringIndexLong, expression));
             } else {
                 matches.add(new Match((int) fromStringIndexLong, (int) toStringIndexLong, "", expression));
             }
             return true;
-        });
+        };
+        ctx.byteHandler = null;
+        ctx.rawHandler = null;
+
+        if (isAscii(input)) {
+            ctx.mapping = null;
+            byte[] bytes = input.getBytes(StandardCharsets.UTF_8);
+            scanRaw(db, bytes);
+        } else {
+            ByteBuffer byteBuffer = ByteBuffer.allocateDirect(input.length() * 4);
+            final ByteCharMapping mapping = Utf8Encoder.encodeToBufferAndMap(byteBuffer, input);
+            ctx.mapping = mapping;
+            scanRaw(db, byteBuffer);
+        }
 
         return matches.isEmpty() ? emptyList() : matches;
     }
 
     public void scan(final Database db, final String input, StringMatchEventHandler eventHandler) {
+        CallbackContext ctx = ACTIVE_CONTEXT.get();
+        ctx.db = db;
+        ctx.stringHandler = eventHandler;
+        ctx.byteHandler = null;
+        ctx.rawHandler = null;
+
         if (isAscii(input)) {
+            ctx.mapping = null;
             byte[] bytes = input.getBytes(StandardCharsets.UTF_8);
-            scanRaw(db, bytes, (expressionId, fromByteIdx, toByteIdx, flags) -> {
-                Expression expression = db.getExpression(expressionId);
-                long toStringIndex = toByteIdx > 0 ? toByteIdx - 1 : 0;
-                return eventHandler.onMatch(expression, fromByteIdx, toStringIndex);
-            });
+            scanRaw(db, bytes);
             return;
         }
 
         ByteBuffer byteBuffer = ByteBuffer.allocateDirect(input.length() * 4);
         final ByteCharMapping mapping = Utf8Encoder.encodeToBufferAndMap(byteBuffer, input);
-
-        scanRaw(db, byteBuffer, (expressionId, fromByteIdx, toByteIdx, flags) -> {
-            Expression expression = db.getExpression(expressionId);
-            long fromStringIndex = mapping.getMappingSize() > 0 ? mapping.getCharIndex((int) fromByteIdx) : 0;
-            long toStringIndex = 0;
-
-            if (toByteIdx > 0) {
-                toStringIndex = mapping.getMappingSize() > 0 ? mapping.getCharIndex((int) toByteIdx - 1) : 0;
-            }
-
-            return eventHandler.onMatch(expression, fromStringIndex, toStringIndex);
-        });
+        ctx.mapping = mapping;
+        scanRaw(db, byteBuffer);
     }
 
     public void scan(final Database db, final byte[] input, ByteMatchEventHandler eventHandler) {
-        scanRaw(db, input, (expressionId, fromByteIdx, toByteIdx, flags) ->
-                eventHandler.onMatch(db.getExpression(expressionId), fromByteIdx, toByteIdx)
-        );
+        CallbackContext ctx = ACTIVE_CONTEXT.get();
+        ctx.db = db;
+        ctx.byteHandler = eventHandler;
+        ctx.stringHandler = null;
+        ctx.rawHandler = null;
+        ctx.mapping = null;
+        scanRaw(db, input);
     }
 
     private static MemorySegment getScanBuffer(byte[] data) {
@@ -188,30 +227,31 @@ public class Scanner implements Closeable {
         return buffer;
     }
 
-    private int scanRaw(final Database db, final byte[] data, int offset, int length, RawMatchEventHandler eventHandler) {
+    private int scanRaw(final Database db, final byte[] data) {
+        return scanRaw(db, data, 0, data.length);
+    }
+
+    private int scanRaw(final Database db, final byte[] data, int offset, int length) {
         MemorySegment segment = getScanBuffer(data, offset, length);
-        return scanRaw(db, segment, length, eventHandler);
+        return scanRaw(db, segment, length);
     }
 
-    private int scanRaw(final Database db, final byte[] data, RawMatchEventHandler eventHandler) {
-        return scanRaw(db, data, 0, data.length, eventHandler);
-    }
-
-    private int scanRaw(final Database db, final ByteBuffer input, RawMatchEventHandler eventHandler) {
+    private int scanRaw(final Database db, final ByteBuffer input) {
         int position = input.position();
         int length = input.remaining();
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment data = getNativeSegment(arena, input, position, length);
-            return scanRaw(db, data, length, eventHandler);
+            return scanRaw(db, data, length);
         }
     }
 
-    private int scanRaw(final Database db, final MemorySegment data, final int length, RawMatchEventHandler eventHandler) {
-        if (activeCallback.get() != null) {
+    private int scanRaw(final Database db, final MemorySegment data, final int length) {
+        CallbackContext ctx = ACTIVE_CONTEXT.get();
+        if (ctx.inUse) {
             throw new IllegalStateException("Recursive scanning is not supported.");
         }
 
-        activeCallback.set(eventHandler);
+        ctx.inUse = true;
 
         try {
             MemorySegment database = db.getDatabase();
@@ -225,7 +265,11 @@ public class Scanner implements Closeable {
             }
             return hsError;
         } finally {
-            activeCallback.remove();
+            ctx.inUse = false;
+            ctx.rawHandler = null;
+            ctx.byteHandler = null;
+            ctx.stringHandler = null;
+            ctx.mapping = null;
         }
     }
 
@@ -252,9 +296,13 @@ public class Scanner implements Closeable {
     }
 
     public boolean hasMatch(final Database db, final ByteBuffer input) {
-        RawMatchEventHandler terminationHandler = (expressionId, fromByteIdx, toByteIdx, flags) -> false;
-
-        int hsError = scanRaw(db, input, terminationHandler);
+        CallbackContext ctx = ACTIVE_CONTEXT.get();
+        ctx.db = db;
+        ctx.rawHandler = TERMINATION_HANDLER;
+        ctx.byteHandler = null;
+        ctx.stringHandler = null;
+        ctx.mapping = null;
+        int hsError = scanRaw(db, input);
         return hsError == JNI.hsScanTerminated();
     }
 
@@ -273,8 +321,13 @@ public class Scanner implements Closeable {
     }
 
     private boolean hasMatch(final Database db, final byte[] input, int offset, int length) {
-        RawMatchEventHandler terminationHandler = (expressionId, fromByteIdx, toByteIdx, flags) -> false;
-        int hsError = scanRaw(db, input, offset, length, terminationHandler);
+        CallbackContext ctx = ACTIVE_CONTEXT.get();
+        ctx.db = db;
+        ctx.rawHandler = TERMINATION_HANDLER;
+        ctx.byteHandler = null;
+        ctx.stringHandler = null;
+        ctx.mapping = null;
+        int hsError = scanRaw(db, input, offset, length);
         return hsError == JNI.hsScanTerminated();
     }
 
