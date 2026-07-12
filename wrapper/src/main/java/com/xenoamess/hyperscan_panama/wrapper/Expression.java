@@ -24,6 +24,7 @@ public class Expression {
     @Getter @NonNull private final String expression;
     @Getter private final EnumSet<ExpressionFlag> flags;
     @Getter private final Integer id;
+    private final int flagBits;
 
     /**
      * Represents the validation results for a expression
@@ -96,6 +97,12 @@ public class Expression {
         this.expression = expression;
         this.flags = flags;
         this.id = id;
+
+        int bitValue = 0;
+        for (BitFlag flag : flags) {
+            bitValue = flag.getBits() | bitValue;
+        }
+        this.flagBits = bitValue;
     }
 
     /**
@@ -146,10 +153,8 @@ public class Expression {
         if (messagePtr == null || messagePtr.address() == 0) {
             return null;
         }
-        try (Arena arena = Arena.ofConfined()) {
-            MemorySegment readable = messagePtr.reinterpret(4096, arena, null);
-            return readable.getString(0);
-        }
+        MemorySegment readable = messagePtr.reinterpret(1024, Arena.global(), null);
+        return readable.getString(0);
     }
 
     /**
@@ -159,14 +164,6 @@ public class Expression {
      * @return The integer bitmask value.
      */
     int getFlagBits() {
-        int bitValue = 0;
-
-        if(flags != null) {
-            for(BitFlag flag : flags) {
-                bitValue = flag.getBits() | bitValue;
-            }
-        }
-
-        return bitValue;
+        return flagBits;
     }
 }

@@ -182,6 +182,18 @@ class DatabaseTest {
     }
 
     @Test
+    void getSize_repeatedCalls_shouldReturnConsistentValue() throws CompileErrorException {
+        try (Database db = Database.compile(expressions)) {
+            long size1 = db.getSize();
+            long size2 = db.getSize();
+            long size3 = db.getSize();
+            assertThat(size1).isGreaterThan(0);
+            assertThat(size2).isEqualTo(size1);
+            assertThat(size3).isEqualTo(size1);
+        }
+    }
+
+    @Test
     void databaseEqualsAndHashCode() throws CompileErrorException {
         List<Expression> expressionsOne = Arrays.asList(
                 new Expression("abc", EnumSet.noneOf(ExpressionFlag.class), 1),
@@ -225,6 +237,38 @@ class DatabaseTest {
 
             assertEquals(originalDb, loadedDb);
             assertEquals(originalDb.getSize(), loadedDb.getSize());
+            loadedDb.close();
+        }
+    }
+
+    @Test
+    void saveAndLoadLargeDatabaseShouldWork() throws CompileErrorException, IOException {
+        List<Expression> expressions = new ArrayList<>();
+        for (int i = 0; i < 1000; i++) {
+            expressions.add(new Expression(
+                    "pattern" + i + "[a-z]+",
+                    EnumSet.of(ExpressionFlag.SOM_LEFTMOST),
+                    i
+            ));
+        }
+
+        try (Database originalDb = Database.compile(expressions)) {
+            assertThat(originalDb.getSize()).isGreaterThan(64 * 1024); // Ensure serialized DB is larger than buffer
+
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            originalDb.save(baos);
+            byte[] serializedBytes = baos.toByteArray();
+
+            Database loadedDb = Database.load(new ByteArrayInputStream(serializedBytes));
+            assertEquals(originalDb, loadedDb);
+            assertEquals(originalDb.getSize(), loadedDb.getSize());
+
+            try (Scanner scanner = new Scanner()) {
+                scanner.allocScratch(loadedDb);
+                List<Match> matches = scanner.scan(loadedDb, "pattern123abc");
+                assertThat(matches).isNotEmpty();
+            }
+
             loadedDb.close();
         }
     }

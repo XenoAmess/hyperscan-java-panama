@@ -53,6 +53,9 @@ public class Scanner implements Closeable {
     private static final Arena SCAN_BUFFER_ARENA = Arena.global();
     private static final ThreadLocal<MemorySegment> SCAN_BUFFER = ThreadLocal.withInitial(() -> MemorySegment.NULL);
     private static final ThreadLocal<ByteBuffer> NON_ASCII_BUFFER = ThreadLocal.withInitial(() -> ByteBuffer.allocateDirect(0));
+    private static final ThreadLocal<MemorySegment> SCRATCH_SIZE_BUFFER = ThreadLocal.withInitial(
+            () -> Arena.global().allocate(JNI.size_t())
+    );
 
     private static final class CallbackContext {
         Database db;
@@ -138,14 +141,12 @@ public class Scanner implements Closeable {
 
     public long getSize() {
         MemorySegment scratch = state.getScratch();
-        try (Arena arena = Arena.ofConfined()) {
-            MemorySegment size = arena.allocate(JNI.size_t());
-            int hsError = JNI.hsScratchSize(scratch, size);
-            if (hsError != 0) {
-                throw HyperscanException.hsErrorToException(hsError);
-            }
-            return JNI.readSize_t(size, 0);
+        MemorySegment size = SCRATCH_SIZE_BUFFER.get();
+        int hsError = JNI.hsScratchSize(scratch, size);
+        if (hsError != 0) {
+            throw HyperscanException.hsErrorToException(hsError);
         }
+        return JNI.readSize_t(size, 0);
     }
 
     public void allocScratch(final Database db) {
@@ -316,6 +317,16 @@ public class Scanner implements Closeable {
     }
 
     private static boolean isAscii(String input) {
+        if (STRING_VALUE_OFFSET >= 0 && STRING_CODER_OFFSET >= 0
+                && UNSAFE.getByte(input, STRING_CODER_OFFSET) == 0) {
+            byte[] value = (byte[]) UNSAFE.getObject(input, STRING_VALUE_OFFSET);
+            for (int i = 0; i < value.length; i++) {
+                if (value[i] < 0) {
+                    return false;
+                }
+            }
+            return true;
+        }
         for (int i = 0; i < input.length(); i++) {
             if (input.charAt(i) >= 0x80) {
                 return false;

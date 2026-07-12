@@ -82,6 +82,31 @@ class ExpressionTest {
     }
 
     @Test
+    void getFlagBits_shouldBeCachedAndCorrect() {
+        EnumSet<ExpressionFlag> flags = EnumSet.of(
+                ExpressionFlag.CASELESS,
+                ExpressionFlag.SOM_LEFTMOST,
+                ExpressionFlag.DOTALL
+        );
+        Expression expression = new Expression("test", flags, 1);
+
+        int expected = ExpressionFlag.CASELESS.getBits()
+                | ExpressionFlag.SOM_LEFTMOST.getBits()
+                | ExpressionFlag.DOTALL.getBits();
+        assertEquals(expected, expression.getFlagBits());
+
+        // Multiple calls should return the same cached value
+        assertEquals(expected, expression.getFlagBits());
+        assertEquals(expected, expression.getFlagBits());
+    }
+
+    @Test
+    void getFlagBits_forNoFlag_shouldBeZero() {
+        Expression expression = new Expression("test");
+        assertEquals(0, expression.getFlagBits());
+    }
+
+    @Test
     void equalsAndHashCodeShouldWork() {
         EnumSet<ExpressionFlag> flags1 = EnumSet.of(ExpressionFlag.CASELESS, ExpressionFlag.DOTALL);
         EnumSet<ExpressionFlag> flags2 = EnumSet.of(ExpressionFlag.DOTALL, ExpressionFlag.CASELESS); // Same flags, different order

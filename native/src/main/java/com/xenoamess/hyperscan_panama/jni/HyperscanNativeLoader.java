@@ -29,8 +29,23 @@ public final class HyperscanNativeLoader {
 
     private static volatile boolean loaded = false;
     private static volatile HyperscanJni jni;
+    private static volatile String selectedPlatform;
 
     private HyperscanNativeLoader() {
+    }
+
+    private static String getPlatform() {
+        String platform = selectedPlatform;
+        if (platform == null) {
+            platform = System.getProperty(PLATFORM_PROPERTY);
+            if (platform == null || platform.isEmpty()) {
+                platform = selectPlatform();
+            }
+            if (platform != null) {
+                selectedPlatform = platform;
+            }
+        }
+        return platform;
     }
 
     /**
@@ -42,10 +57,7 @@ public final class HyperscanNativeLoader {
             return;
         }
 
-        String platform = System.getProperty(PLATFORM_PROPERTY);
-        if (platform == null || platform.isEmpty()) {
-            platform = selectPlatform();
-        }
+        String platform = getPlatform();
 
         if (platform == null) {
             throw new UnsatisfiedLinkError(
@@ -70,10 +82,7 @@ public final class HyperscanNativeLoader {
         if (jni == null) {
             load();
 
-            String platform = System.getProperty(PLATFORM_PROPERTY);
-            if (platform == null || platform.isEmpty()) {
-                platform = selectPlatform();
-            }
+            String platform = getPlatform();
             if (platform == null) {
                 throw new UnsatisfiedLinkError(
                         "Unable to determine a supported hyperscan platform for this system"

@@ -25,11 +25,16 @@ public class Database implements Closeable {
 
     private static final HyperscanJni JNI = HyperscanNativeLoader.loadJni();
 
+    private static final ThreadLocal<MemorySegment> SIZE_BUFFER = ThreadLocal.withInitial(
+            () -> Arena.global().allocate(JNI.size_t())
+    );
+
     private static final java.lang.ref.Cleaner CLEANER = java.lang.ref.Cleaner.create();
 
     private final Map<Integer, Expression> expressions;
     private final int expressionCount;
     private final Expression[] expressionsById;
+    private final IntExpressionMap sparseExpressions;
 
     private final State state;
     private final java.lang.ref.Cleaner.Cleanable cleanable;
@@ -59,6 +64,49 @@ public class Database implements Closeable {
         }
     }
 
+    private static final class IntExpressionMap {
+        private final int[] keys;
+        private final Expression[] values;
+        private final boolean[] used;
+        private final int mask;
+
+        IntExpressionMap(int initialSize) {
+            int capacity = 1;
+            while (capacity < initialSize * 2) {
+                capacity <<= 1;
+            }
+            this.keys = new int[capacity];
+            this.values = new Expression[capacity];
+            this.used = new boolean[capacity];
+            this.mask = capacity - 1;
+        }
+
+        void put(int key, Expression value) {
+            int idx = hash(key) & mask;
+            while (used[idx]) {
+                idx = (idx + 1) & mask;
+            }
+            used[idx] = true;
+            keys[idx] = key;
+            values[idx] = value;
+        }
+
+        Expression get(int key) {
+            int idx = hash(key) & mask;
+            while (used[idx]) {
+                if (keys[idx] == key) {
+                    return values[idx];
+                }
+                idx = (idx + 1) & mask;
+            }
+            return null;
+        }
+
+        private static int hash(int key) {
+            return key ^ (key >>> 16);
+        }
+    }
+
     private Database(MemorySegment database, List<Expression> expressions) {
         this.state = new State(database);
         this.cleanable = CLEANER.register(this, state);
@@ -79,8 +127,10 @@ public class Database implements Closeable {
         }
         if (maxId >= 0 && maxId <= expressionCount * 2) {
             this.expressionsById = new Expression[maxId + 1];
+            this.sparseExpressions = null;
         } else {
             this.expressionsById = new Expression[0];
+            this.sparseExpressions = new IntExpressionMap(expressionCount);
         }
 
         this.expressions = new HashMap<>(expressionCount);
@@ -89,6 +139,9 @@ public class Database implements Closeable {
                 Integer id = expression.getId();
                 if (id != null && id < expressionsById.length) {
                     expressionsById[id] = expression;
+                }
+                if (sparseExpressions != null && id != null) {
+                    sparseExpressions.put(id, expression);
                 }
                 if (this.expressions.put(id, expression) != null)
                     throw new IllegalStateException("Expression ID must be unique within a Database.");
@@ -112,10 +165,8 @@ public class Database implements Closeable {
         if (messagePtr == null || messagePtr.address() == 0) {
             return null;
         }
-        try (Arena arena = Arena.ofConfined()) {
-            MemorySegment readable = messagePtr.reinterpret(4096, arena, null);
-            return readable.getString(0);
-        }
+        MemorySegment readable = messagePtr.reinterpret(1024, Arena.global(), null);
+        return readable.getString(0);
     }
 
     private static void handleErrors(int hsError, MemorySegment error, List<Expression> expressions) throws CompileErrorException {
@@ -212,15 +263,12 @@ public class Database implements Closeable {
      */
     public long getSize() {
         MemorySegment database = state.getDatabase();
-
-        try (Arena arena = Arena.ofConfined()) {
-            MemorySegment size = arena.allocate(JNI.size_t());
-            int hsError = JNI.hsDatabaseSize(database, size);
-            if (hsError != 0) {
-                throw HyperscanException.hsErrorToException(hsError);
-            }
-            return JNI.readSize_t(size, 0);
+        MemorySegment size = SIZE_BUFFER.get();
+        int hsError = JNI.hsDatabaseSize(database, size);
+        if (hsError != 0) {
+            throw HyperscanException.hsErrorToException(hsError);
         }
+        return JNI.readSize_t(size, 0);
     }
 
     Expression getExpression(int id) {
@@ -230,7 +278,7 @@ public class Database implements Closeable {
                 return expression;
             }
         }
-        return expressions.get(id);
+        return sparseExpressions != null ? sparseExpressions.get(id) : expressions.get(id);
     }
 
     @Override
@@ -299,9 +347,19 @@ public class Database implements Closeable {
             long length = JNI.readSize_t(size, 0);
             MemorySegment bytes = bytesOut.get(ValueLayout.ADDRESS, 0).reinterpret(length);
 
-            DataOutputStream databaseDataOut = new DataOutputStream(databaseOut);
+            DataOutputStream databaseDataOut = new DataOutputStream(new BufferedOutputStream(databaseOut));
             databaseDataOut.writeInt((int) length);
-            databaseDataOut.write(bytes.asSlice(0, length).toArray(ValueLayout.JAVA_BYTE));
+
+            byte[] buffer = new byte[65536];
+            long offset = 0;
+            long remaining = length;
+            while (remaining > 0) {
+                int chunk = (int) Math.min(remaining, buffer.length);
+                MemorySegment.copy(bytes, ValueLayout.JAVA_BYTE, offset, buffer, 0, chunk);
+                databaseDataOut.write(buffer, 0, chunk);
+                offset += chunk;
+                remaining -= chunk;
+            }
             databaseDataOut.flush();
 
             // The library allocated the serialized buffer with its default allocator;

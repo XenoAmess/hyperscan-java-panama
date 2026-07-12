@@ -333,6 +333,16 @@ class ScannerTest {
     }
 
     @Test
+    void getSize_repeatedCalls_shouldReturnConsistentValue() {
+        long size1 = scanner.getSize();
+        long size2 = scanner.getSize();
+        long size3 = scanner.getSize();
+        assertThat(size1).isGreaterThan(0);
+        assertThat(size2).isEqualTo(size1);
+        assertThat(size3).isEqualTo(size1);
+    }
+
+    @Test
     void scan_afterClose_shouldThrowException() throws IOException {
         scanner.close(); // Close the scanner (frees scratch)
 
@@ -627,6 +637,15 @@ class ScannerTest {
             });
             scanner.allocScratch(database);
         }
+    }
+
+    @Test
+    void scanString_latin1NonAscii_shouldUseUtf8Path() {
+        // LATIN-1 encoded string with a non-ASCII byte (é = 0xE9).  This exercises the
+        // LATIN1 byte-scan fast path in isAscii and confirms the UTF-8 fallback path is
+        // still used when the string contains non-ASCII characters.
+        String text = new String(new byte[] { 't', 'e', 's', 't', (byte) 0xE9 }, StandardCharsets.ISO_8859_1);
+        assertTrue(scanner.hasMatch(database, text));
     }
 
     @Test

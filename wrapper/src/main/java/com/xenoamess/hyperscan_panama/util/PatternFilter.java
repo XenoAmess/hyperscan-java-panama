@@ -77,17 +77,15 @@ public class PatternFilter implements Closeable {
      * @return Matcher for the probably matching Patterns
      */
     public List<Matcher> filter(String input) {
-        List<Matcher> matchedMatchers = new ArrayList<>();
-
         List<Match> matches = scanner.scan(database, input);
-        matches.forEach(match -> {
+        List<Matcher> matchedMatchers = new ArrayList<>(matches.size() + notFilterable.size());
+        for (Match match : matches) {
             matchedMatchers.add(this.matchers[match.getMatchedExpression().getId()]);
-        });
-
+        }
         matchedMatchers.addAll(notFilterable);
-
-        matchedMatchers.forEach(matcher -> matcher.reset(input));
-
+        for (Matcher matcher : matchedMatchers) {
+            matcher.reset(input);
+        }
         return matchedMatchers;
     }
 
