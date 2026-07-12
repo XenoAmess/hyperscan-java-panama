@@ -269,3 +269,11 @@ jobs:
           mvn -B install -N -DskipTests
           mvn -B verify -pl wrapper \
             -Dnative.classifier=${{ matrix.platform }}
+
+      - name: Upload wrapper coverage report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: jacoco-report-${{ matrix.platform }}
+          path: wrapper/target/site/jacoco
+          if-no-files-found: warn

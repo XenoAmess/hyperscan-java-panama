@@ -1,6 +1,7 @@
 # hyperscan-java-panama
 
 [![Build and Test](https://github.com/XenoAmess/hyperscan-java-panama/actions/workflows/build.yml/badge.svg)](https://github.com/XenoAmess/hyperscan-java-panama/actions/workflows/build.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://xenoamess.github.io/hyperscan-java-panama/coverage-wrapper.json)](https://xenoamess.github.io/hyperscan-java-panama/coverage/coverage.html)
 
 📊 **[查看最新性能报告](https://xenoamess.github.io/hyperscan-java-panama/)**
 

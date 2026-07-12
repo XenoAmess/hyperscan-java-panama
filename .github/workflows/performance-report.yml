@@ -210,6 +210,68 @@ jobs:
             benchmark-raw \
             ${BENCHMARK_OUTPUT_DIR}/summary.svg
 
+      - name: Download wrapper coverage report (from triggering run)
+        if: github.event_name == 'workflow_run'
+        uses: actions/download-artifact@v4
+        with:
+          name: jacoco-report-linux-x86_64
+          path: coverage-report
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download wrapper coverage report (manual dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        uses: dawidd6/action-download-artifact@v9
+        with:
+          workflow: build.yml
+          branch: main
+          name: jacoco-report-linux-x86_64
+          path: coverage-report
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate coverage badge and copy report
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          report_dir = Path('coverage-report')
+          jacoco_xml = report_dir / 'jacoco.xml'
+          if not jacoco_xml.exists():
+              candidates = list(report_dir.rglob('jacoco.xml'))
+              if candidates:
+                  jacoco_xml = candidates[0]
+              else:
+                  raise FileNotFoundError('jacoco.xml not found in coverage report')
+
+          root = ET.parse(str(jacoco_xml)).getroot()
+          for counter in root.findall('counter'):
+              if counter.get('type') == 'INSTRUCTION':
+                  covered = int(counter.get('covered'))
+                  missed = int(counter.get('missed'))
+                  total = covered + missed
+                  pct = round(covered / total * 100) if total > 0 else 0
+                  break
+          else:
+              pct = 0
+
+          color = 'green' if pct >= 80 else 'yellow' if pct >= 60 else 'red'
+          badge = {
+              'schemaVersion': 1,
+              'label': 'coverage',
+              'message': f'{pct}%',
+              'color': color
+          }
+          Path('_site/coverage-wrapper.json').write_text(json.dumps(badge))
+          print(f'Coverage: {pct}%')
+          PY
+
+          mkdir -p ${BENCHMARK_OUTPUT_DIR}/coverage
+          cp -R coverage-report/* ${BENCHMARK_OUTPUT_DIR}/coverage/
+          mv ${BENCHMARK_OUTPUT_DIR}/coverage/index.html ${BENCHMARK_OUTPUT_DIR}/coverage/coverage.html
+
       - name: Upload pages artifact
         uses: actions/upload-pages-artifact@v5
         with:
