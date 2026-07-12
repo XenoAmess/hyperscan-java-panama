@@ -31,10 +31,12 @@ public class Database implements Closeable {
 
     private static final java.lang.ref.Cleaner CLEANER = java.lang.ref.Cleaner.create();
 
-    private final Map<Integer, Expression> expressions;
+    private final List<Expression> expressionsSource;
+    private final boolean hasIds;
     private final int expressionCount;
     private final Expression[] expressionsById;
     private final IntExpressionMap sparseExpressions;
+    private Map<Integer, Expression> expressions; // lazy, built on first access
 
     private final State state;
     private final java.lang.ref.Cleaner.Cleanable cleanable;
@@ -64,7 +66,7 @@ public class Database implements Closeable {
         }
     }
 
-    private static final class IntExpressionMap {
+    static final class IntExpressionMap {
         private final int[] keys;
         private final Expression[] values;
         private final boolean[] used;
@@ -111,8 +113,9 @@ public class Database implements Closeable {
         this.state = new State(database);
         this.cleanable = CLEANER.register(this, state);
         this.expressionCount = expressions.size();
+        this.expressionsSource = List.copyOf(expressions);
 
-        boolean hasIds = expressions.get(0).getId() != null;
+        this.hasIds = expressions.get(0).getId() != null;
 
         int maxId = -1;
         if (hasIds) {
@@ -133,23 +136,25 @@ public class Database implements Closeable {
             this.sparseExpressions = new IntExpressionMap(expressionCount);
         }
 
-        this.expressions = new HashMap<>(expressionCount);
         if (hasIds) {
             for (Expression expression : expressions) {
                 Integer id = expression.getId();
                 if (id != null && id < expressionsById.length) {
+                    if (expressionsById[id] != null) {
+                        throw new IllegalStateException("Expression ID must be unique within a Database.");
+                    }
                     expressionsById[id] = expression;
                 }
                 if (sparseExpressions != null && id != null) {
+                    if (sparseExpressions.get(id) != null) {
+                        throw new IllegalStateException("Expression ID must be unique within a Database.");
+                    }
                     sparseExpressions.put(id, expression);
                 }
-                if (this.expressions.put(id, expression) != null)
-                    throw new IllegalStateException("Expression ID must be unique within a Database.");
             }
         } else {
             int i = 0;
             for (Expression expression : expressions) {
-                this.expressions.put(i, expression);
                 expressionsById[i] = expression;
                 i++;
             }
@@ -278,7 +283,40 @@ public class Database implements Closeable {
                 return expression;
             }
         }
-        return sparseExpressions != null ? sparseExpressions.get(id) : expressions.get(id);
+        return sparseExpressions != null ? sparseExpressions.get(id) : getExpressionsMap().get(id);
+    }
+
+    final Expression[] getExpressionsById() {
+        return expressionsById;
+    }
+
+    final IntExpressionMap getSparseExpressions() {
+        return sparseExpressions;
+    }
+
+    private Map<Integer, Expression> getExpressionsMap() {
+        Map<Integer, Expression> map = expressions;
+        if (map == null) {
+            synchronized (this) {
+                map = expressions;
+                if (map == null) {
+                    map = new HashMap<>(expressionCount);
+                    if (hasIds) {
+                        for (Expression expression : expressionsSource) {
+                            map.put(expression.getId(), expression);
+                        }
+                    } else {
+                        int i = 0;
+                        for (Expression expression : expressionsSource) {
+                            map.put(i, expression);
+                            i++;
+                        }
+                    }
+                    expressions = map;
+                }
+            }
+        }
+        return map;
     }
 
     @Override
@@ -313,7 +351,7 @@ public class Database implements Closeable {
         DataOutputStream expressionsDataOut = new DataOutputStream(expressionsOut);
         // How many expressions will be present. We need this to know when to stop reading.
         expressionsDataOut.writeInt(expressionCount);
-        for (Expression expression : expressions.values()) {
+        for (Expression expression : getExpressionsMap().values()) {
             if (expression == null) {
                 continue;
             }
@@ -438,13 +476,13 @@ public class Database implements Closeable {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         Database database = (Database) o;
-        return expressionCount == database.expressionCount && expressions.equals(database.expressions);
+        return expressionCount == database.expressionCount && getExpressionsMap().equals(database.getExpressionsMap());
     }
 
     @Override
     public int hashCode() {
         int result = Objects.hash(expressionCount);
-        result = 31 * result + expressions.hashCode();
+        result = 31 * result + getExpressionsMap().hashCode();
         return result;
     }
 }

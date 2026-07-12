@@ -59,6 +59,8 @@ public class Scanner implements Closeable {
 
     private static final class CallbackContext {
         Database db;
+        Expression[] expressionsById;
+        Database.IntExpressionMap sparseExpressions;
         ByteMatchEventHandler byteHandler;
         StringMatchEventHandler stringHandler;
         RawMatchEventHandler rawHandler;
@@ -74,11 +76,20 @@ public class Scanner implements Closeable {
                 if (ctx.rawHandler != null) {
                     return ctx.rawHandler.onMatch(id, from, to, flags) ? 0 : -1;
                 }
+                Expression expression = null;
+                Expression[] byId = ctx.expressionsById;
+                if (id >= 0 && id < byId.length) {
+                    expression = byId[id];
+                } else if (ctx.sparseExpressions != null) {
+                    expression = ctx.sparseExpressions.get(id);
+                }
+                if (expression == null) {
+                    return 0;
+                }
                 if (ctx.byteHandler != null) {
-                    return ctx.byteHandler.onMatch(ctx.db.getExpression(id), from, to) ? 0 : -1;
+                    return ctx.byteHandler.onMatch(expression, from, to) ? 0 : -1;
                 }
                 if (ctx.stringHandler != null) {
-                    Expression expression = ctx.db.getExpression(id);
                     long fromStringIndex = ctx.mapping != null ? ctx.mapping.getCharIndex((int) from) : from;
                     long toStringIndex = 0;
                     if (to > 0) {
@@ -224,6 +235,37 @@ public class Scanner implements Closeable {
         scanRaw(db, input);
     }
 
+    public void scan(final Database db, final ByteBuffer input, ByteMatchEventHandler eventHandler) {
+        CallbackContext ctx = ACTIVE_CONTEXT.get();
+        ctx.db = db;
+        ctx.byteHandler = eventHandler;
+        ctx.stringHandler = null;
+        ctx.rawHandler = null;
+        ctx.mapping = null;
+
+        int position = input.position();
+        int length = input.remaining();
+        if (input.isDirect()) {
+            MemorySegment data = MemorySegment.ofBuffer(input).asSlice(position, length);
+            scanRaw(db, data, length);
+        } else {
+            try (Arena arena = Arena.ofConfined()) {
+                MemorySegment data = getNativeSegment(arena, input, position, length);
+                scanRaw(db, data, length);
+            }
+        }
+    }
+
+    public void scan(final Database db, final MemorySegment input, final int length, ByteMatchEventHandler eventHandler) {
+        CallbackContext ctx = ACTIVE_CONTEXT.get();
+        ctx.db = db;
+        ctx.byteHandler = eventHandler;
+        ctx.stringHandler = null;
+        ctx.rawHandler = null;
+        ctx.mapping = null;
+        scanRaw(db, input, length);
+    }
+
     private static MemorySegment getScanBuffer(byte[] data) {
         return getScanBuffer(data, 0, data.length);
     }
@@ -295,6 +337,8 @@ public class Scanner implements Closeable {
         }
 
         ctx.inUse = true;
+        ctx.expressionsById = db.getExpressionsById();
+        ctx.sparseExpressions = db.getSparseExpressions();
 
         try {
             MemorySegment database = db.getDatabase();
@@ -313,6 +357,8 @@ public class Scanner implements Closeable {
             ctx.byteHandler = null;
             ctx.stringHandler = null;
             ctx.mapping = null;
+            ctx.expressionsById = null;
+            ctx.sparseExpressions = null;
         }
     }
 
