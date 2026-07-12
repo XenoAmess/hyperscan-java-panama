@@ -12,7 +12,6 @@ import java.lang.foreign.ValueLayout;
 import java.lang.reflect.Field;
 import java.nio.Buffer;
 import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import sun.misc.Unsafe;
@@ -25,6 +24,8 @@ public class Scanner implements Closeable {
     }
 
     private static final Unsafe UNSAFE = getUnsafe();
+    private static final long STRING_VALUE_OFFSET = objectFieldOffset(String.class, "value");
+    private static final long STRING_CODER_OFFSET = objectFieldOffset(String.class, "coder");
 
     private static Unsafe getUnsafe() {
         try {
@@ -36,11 +37,22 @@ public class Scanner implements Closeable {
         }
     }
 
+    private static long objectFieldOffset(Class<?> clazz, String name) {
+        try {
+            return UNSAFE.objectFieldOffset(clazz.getDeclaredField(name));
+        } catch (NoSuchFieldException e) {
+            return -1;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     private static final HyperscanJni JNI = HyperscanNativeLoader.loadJni();
 
     private static final Arena CALLBACK_ARENA = Arena.global();
     private static final Arena SCAN_BUFFER_ARENA = Arena.global();
     private static final ThreadLocal<MemorySegment> SCAN_BUFFER = ThreadLocal.withInitial(() -> MemorySegment.NULL);
+    private static final ThreadLocal<ByteBuffer> NON_ASCII_BUFFER = ThreadLocal.withInitial(() -> ByteBuffer.allocateDirect(0));
 
     private static final class CallbackContext {
         Database db;
@@ -171,10 +183,9 @@ public class Scanner implements Closeable {
 
         if (isAscii(input)) {
             ctx.mapping = null;
-            byte[] bytes = input.getBytes(StandardCharsets.UTF_8);
-            scanRaw(db, bytes);
+            scanRaw(db, getAsciiSegment(input), input.length());
         } else {
-            ByteBuffer byteBuffer = ByteBuffer.allocateDirect(input.length() * 4);
+            ByteBuffer byteBuffer = getNonAsciiBuffer(input);
             final ByteCharMapping mapping = Utf8Encoder.encodeToBufferAndMap(byteBuffer, input);
             ctx.mapping = mapping;
             scanRaw(db, byteBuffer);
@@ -192,12 +203,11 @@ public class Scanner implements Closeable {
 
         if (isAscii(input)) {
             ctx.mapping = null;
-            byte[] bytes = input.getBytes(StandardCharsets.UTF_8);
-            scanRaw(db, bytes);
+            scanRaw(db, getAsciiSegment(input), input.length());
             return;
         }
 
-        ByteBuffer byteBuffer = ByteBuffer.allocateDirect(input.length() * 4);
+        ByteBuffer byteBuffer = getNonAsciiBuffer(input);
         final ByteCharMapping mapping = Utf8Encoder.encodeToBufferAndMap(byteBuffer, input);
         ctx.mapping = mapping;
         scanRaw(db, byteBuffer);
@@ -225,6 +235,38 @@ public class Scanner implements Closeable {
         }
         UNSAFE.copyMemory(data, Unsafe.ARRAY_BYTE_BASE_OFFSET + offset, null, buffer.address(), length);
         return buffer;
+    }
+
+    private static MemorySegment getAsciiSegment(String input) {
+        int length = input.length();
+        MemorySegment buffer = SCAN_BUFFER.get();
+        if (buffer == MemorySegment.NULL || buffer.byteSize() < length) {
+            buffer = SCAN_BUFFER_ARENA.allocate(length, 64);
+            SCAN_BUFFER.set(buffer);
+        }
+        if (STRING_VALUE_OFFSET >= 0 && STRING_CODER_OFFSET >= 0
+                && UNSAFE.getByte(input, STRING_CODER_OFFSET) == 0) {
+            byte[] value = (byte[]) UNSAFE.getObject(input, STRING_VALUE_OFFSET);
+            UNSAFE.copyMemory(value, Unsafe.ARRAY_BYTE_BASE_OFFSET, null, buffer.address(), length);
+        } else {
+            long address = buffer.address();
+            for (int i = 0; i < length; i++) {
+                UNSAFE.putByte(address + i, (byte) input.charAt(i));
+            }
+        }
+        return buffer;
+    }
+
+    private static ByteBuffer getNonAsciiBuffer(String input) {
+        int required = input.length() * 4;
+        ByteBuffer buffer = NON_ASCII_BUFFER.get();
+        if (buffer.capacity() < required) {
+            buffer = ByteBuffer.allocateDirect(required);
+            NON_ASCII_BUFFER.set(buffer);
+        } else {
+            buffer.clear();
+        }
+        return buffer.slice(0, required);
     }
 
     private int scanRaw(final Database db, final byte[] data) {
@@ -312,12 +354,22 @@ public class Scanner implements Closeable {
 
     public boolean hasMatch(final Database db, final String input) {
         if (isAscii(input)) {
-            byte[] bytes = input.getBytes(StandardCharsets.UTF_8);
-            return hasMatch(db, bytes, 0, bytes.length);
+            return hasMatch(db, getAsciiSegment(input), input.length());
         }
-        ByteBuffer byteBuffer = ByteBuffer.allocateDirect(input.length() * 4);
+        ByteBuffer byteBuffer = getNonAsciiBuffer(input);
         Utf8Encoder.encodeToBufferAndMap(byteBuffer, input);
         return hasMatch(db, byteBuffer);
+    }
+
+    private boolean hasMatch(final Database db, final MemorySegment data, final int length) {
+        CallbackContext ctx = ACTIVE_CONTEXT.get();
+        ctx.db = db;
+        ctx.rawHandler = TERMINATION_HANDLER;
+        ctx.byteHandler = null;
+        ctx.stringHandler = null;
+        ctx.mapping = null;
+        int hsError = scanRaw(db, data, length);
+        return hsError == JNI.hsScanTerminated();
     }
 
     private boolean hasMatch(final Database db, final byte[] input, int offset, int length) {

@@ -29,18 +29,20 @@ public class Database implements Closeable {
 
     private final Map<Integer, Expression> expressions;
     private final int expressionCount;
+    private final Expression[] expressionsById;
 
     private final State state;
     private final java.lang.ref.Cleaner.Cleanable cleanable;
 
     private static class State implements Runnable {
-        private MemorySegment database;
+        private volatile MemorySegment database;
 
         State(MemorySegment database) {
             this.database = database;
         }
 
-        synchronized MemorySegment getDatabase() {
+        MemorySegment getDatabase() {
+            MemorySegment database = this.database;
             if (database == null) {
                 throw new IllegalStateException("Database has already been deallocated");
             }
@@ -49,9 +51,10 @@ public class Database implements Closeable {
 
         @Override
         public synchronized void run() {
+            MemorySegment database = this.database;
             if (database != null) {
+                this.database = null;
                 JNI.hsFreeDatabase(database);
-                database = null;
             }
         }
     }
@@ -63,16 +66,39 @@ public class Database implements Closeable {
 
         boolean hasIds = expressions.get(0).getId() != null;
 
+        int maxId = -1;
+        if (hasIds) {
+            for (Expression expression : expressions) {
+                Integer id = expression.getId();
+                if (id != null && id > maxId) {
+                    maxId = id;
+                }
+            }
+        } else {
+            maxId = expressionCount - 1;
+        }
+        if (maxId >= 0 && maxId <= expressionCount * 2) {
+            this.expressionsById = new Expression[maxId + 1];
+        } else {
+            this.expressionsById = new Expression[0];
+        }
+
         this.expressions = new HashMap<>(expressionCount);
         if (hasIds) {
             for (Expression expression : expressions) {
-                if (this.expressions.put(expression.getId(), expression) != null)
+                Integer id = expression.getId();
+                if (id != null && id < expressionsById.length) {
+                    expressionsById[id] = expression;
+                }
+                if (this.expressions.put(id, expression) != null)
                     throw new IllegalStateException("Expression ID must be unique within a Database.");
             }
         } else {
             int i = 0;
             for (Expression expression : expressions) {
-                this.expressions.put(i++, expression);
+                this.expressions.put(i, expression);
+                expressionsById[i] = expression;
+                i++;
             }
         }
     }
@@ -198,6 +224,12 @@ public class Database implements Closeable {
     }
 
     Expression getExpression(int id) {
+        if (id >= 0 && id < expressionsById.length) {
+            Expression expression = expressionsById[id];
+            if (expression != null) {
+                return expression;
+            }
+        }
         return expressions.get(id);
     }
 
