@@ -7,14 +7,18 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import sun.misc.Unsafe;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 class ScannerTest {
 
@@ -622,6 +626,38 @@ class ScannerTest {
                 assertThat(m.getMatchedString()).isEqualTo("Hallo");
             });
             scanner.allocScratch(database);
+        }
+    }
+
+    @Test
+    void scanString_asciiContentWithUtf16Coder_shouldUseFallback() throws Exception {
+        String asciiUtf16 = createAsciiStringWithUtf16Coder("test");
+        assumeTrue(asciiUtf16 != null, "Unable to construct UTF-16 encoded ASCII string on this JVM");
+
+        assertTrue(scanner.hasMatch(database, asciiUtf16));
+    }
+
+    private static String createAsciiStringWithUtf16Coder(String asciiContent) {
+        try {
+            Field field = Unsafe.class.getDeclaredField("theUnsafe");
+            field.setAccessible(true);
+            Unsafe unsafe = (Unsafe) field.get(null);
+
+            long valueOffset = unsafe.objectFieldOffset(String.class.getDeclaredField("value"));
+            long coderOffset = unsafe.objectFieldOffset(String.class.getDeclaredField("coder"));
+
+            String s = (String) unsafe.allocateInstance(String.class);
+            byte[] utf16Bytes = new byte[asciiContent.length() * 2];
+            for (int i = 0; i < asciiContent.length(); i++) {
+                char c = asciiContent.charAt(i);
+                utf16Bytes[i * 2] = (byte) (c & 0xFF);
+                utf16Bytes[i * 2 + 1] = (byte) ((c >> 8) & 0xFF);
+            }
+            unsafe.putObject(s, valueOffset, utf16Bytes);
+            unsafe.putByte(s, coderOffset, (byte) 1);
+            return s;
+        } catch (Exception e) {
+            return null;
         }
     }
 }
