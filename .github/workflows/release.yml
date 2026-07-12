@@ -78,7 +78,7 @@ jobs:
           version: 1.14.0
           arguments: deploy
         env:
-          JRELEASER_PROJECT_VERSION: ${{ github.event.inputs.nativeVersion || '5.4.12-rc5' }}
+          JRELEASER_PROJECT_VERSION: ${{ github.event.inputs.nativeVersion || '5.4.12-rc6' }}
           JRELEASER_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           JRELEASER_MAVENCENTRAL_USERNAME: ${{ secrets.CENTRAL_TOKEN_USERNAME }}
           JRELEASER_MAVENCENTRAL_PASSWORD: ${{ secrets.CENTRAL_TOKEN_PASSWORD }}
@@ -94,7 +94,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ github.event.inputs.nativeVersion || '5.4.12-rc5' }}
+          tag_name: v${{ github.event.inputs.nativeVersion || '5.4.12-rc6' }}
           files: release-jars/*.jar
           generate_release_notes: true
           prerelease: true
