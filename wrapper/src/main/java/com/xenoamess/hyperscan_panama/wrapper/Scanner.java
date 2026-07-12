@@ -9,17 +9,31 @@ import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.lang.reflect.Field;
 import java.nio.Buffer;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import sun.misc.Unsafe;
 
 import static java.util.Collections.emptyList;
 
 public class Scanner implements Closeable {
     static {
         HyperscanNativeLoader.load();
+    }
+
+    private static final Unsafe UNSAFE = getUnsafe();
+
+    private static Unsafe getUnsafe() {
+        try {
+            Field field = Unsafe.class.getDeclaredField("theUnsafe");
+            field.setAccessible(true);
+            return (Unsafe) field.get(null);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
     private static final HyperscanJni JNI = HyperscanNativeLoader.loadJni();
@@ -161,18 +175,26 @@ public class Scanner implements Closeable {
     }
 
     private static MemorySegment getScanBuffer(byte[] data) {
+        return getScanBuffer(data, 0, data.length);
+    }
+
+    private static MemorySegment getScanBuffer(byte[] data, int offset, int length) {
         MemorySegment buffer = SCAN_BUFFER.get();
-        if (buffer == MemorySegment.NULL || buffer.byteSize() < data.length) {
-            buffer = SCAN_BUFFER_ARENA.allocate(data.length);
+        if (buffer == MemorySegment.NULL || buffer.byteSize() < length) {
+            buffer = SCAN_BUFFER_ARENA.allocate(length, 64);
             SCAN_BUFFER.set(buffer);
         }
-        MemorySegment.copy(MemorySegment.ofArray(data), 0, buffer, 0, data.length);
+        UNSAFE.copyMemory(data, Unsafe.ARRAY_BYTE_BASE_OFFSET + offset, null, buffer.address(), length);
         return buffer;
     }
 
+    private int scanRaw(final Database db, final byte[] data, int offset, int length, RawMatchEventHandler eventHandler) {
+        MemorySegment segment = getScanBuffer(data, offset, length);
+        return scanRaw(db, segment, length, eventHandler);
+    }
+
     private int scanRaw(final Database db, final byte[] data, RawMatchEventHandler eventHandler) {
-        MemorySegment segment = getScanBuffer(data);
-        return scanRaw(db, segment, data.length, eventHandler);
+        return scanRaw(db, data, 0, data.length, eventHandler);
     }
 
     private int scanRaw(final Database db, final ByteBuffer input, RawMatchEventHandler eventHandler) {
@@ -252,13 +274,8 @@ public class Scanner implements Closeable {
 
     private boolean hasMatch(final Database db, final byte[] input, int offset, int length) {
         RawMatchEventHandler terminationHandler = (expressionId, fromByteIdx, toByteIdx, flags) -> false;
-        try (Arena arena = Arena.ofConfined()) {
-            MemorySegment source = MemorySegment.ofArray(input).asSlice(offset, length);
-            MemorySegment data = arena.allocate(length);
-            data.copyFrom(source);
-            int hsError = scanRaw(db, data, length, terminationHandler);
-            return hsError == JNI.hsScanTerminated();
-        }
+        int hsError = scanRaw(db, input, offset, length, terminationHandler);
+        return hsError == JNI.hsScanTerminated();
     }
 
     @Override
