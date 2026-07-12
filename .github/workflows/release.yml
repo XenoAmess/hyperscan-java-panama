@@ -92,7 +92,7 @@ jobs:
           cp target/staging-deploy/com/xenoamess/hyperscan_panama/*/*/*/*.jar release-jars/ || true
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ github.event.inputs.nativeVersion || '5.4.12-rc6' }}
           files: release-jars/*.jar
