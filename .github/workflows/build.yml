@@ -140,7 +140,7 @@ jobs:
           cache: maven
 
       - name: Download all native artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: target/variant-m2
           merge-multiple: false
@@ -250,7 +250,7 @@ jobs:
           cache: maven
 
       - name: Download merged native artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: native-merged
           path: target/staging-deploy

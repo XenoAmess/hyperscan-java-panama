@@ -123,7 +123,7 @@ jobs:
 
       - name: Download merged native artifacts (from triggering run)
         if: github.event_name == 'workflow_run' && steps.cpu-check.outputs.SKIPPED != 'true'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: native-merged
           path: target/staging-deploy
@@ -190,7 +190,7 @@ jobs:
           python-version: '3.12'
 
       - name: Download all benchmark raw results
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: benchmark-raw
           pattern: benchmark-raw-*
@@ -212,7 +212,7 @@ jobs:
 
       - name: Download wrapper coverage report (from triggering run)
         if: github.event_name == 'workflow_run'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: jacoco-report-linux-x86_64
           path: coverage-report
