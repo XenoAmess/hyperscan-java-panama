@@ -57,6 +57,28 @@ public class Scanner implements Closeable {
             () -> Arena.global().allocate(JNI.size_t())
     );
 
+    private static final ThreadLocal<DirectBufferCache> DIRECT_BUFFER_CACHE = ThreadLocal.withInitial(DirectBufferCache::new);
+
+    private static final class DirectBufferCache {
+        ByteBuffer buffer;
+        int position = -1;
+        int limit = -1;
+        MemorySegment segment = MemorySegment.NULL;
+    }
+
+    private static MemorySegment directBufferSegment(ByteBuffer input) {
+        DirectBufferCache cache = DIRECT_BUFFER_CACHE.get();
+        if (cache.buffer == input && cache.position == input.position() && cache.limit == input.limit()) {
+            return cache.segment;
+        }
+        MemorySegment segment = MemorySegment.ofBuffer(input).asSlice(input.position(), input.remaining());
+        cache.buffer = input;
+        cache.position = input.position();
+        cache.limit = input.limit();
+        cache.segment = segment;
+        return segment;
+    }
+
     private static final class CallbackContext {
         Database db;
         Expression[] expressionsById;
@@ -246,7 +268,7 @@ public class Scanner implements Closeable {
         int position = input.position();
         int length = input.remaining();
         if (input.isDirect()) {
-            MemorySegment data = MemorySegment.ofBuffer(input).asSlice(position, length);
+            MemorySegment data = directBufferSegment(input);
             scanRaw(db, data, length);
         } else {
             try (Arena arena = Arena.ofConfined()) {
