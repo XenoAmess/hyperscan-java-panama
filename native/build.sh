@@ -120,12 +120,12 @@ cmake -DCMAKE_BUILD_TYPE=Release \
         -DBUILD_BENCHMARKS=false \
         -DBUILD_EXAMPLES=false \
         -DBUILD_TOOLS=false \
-        -DBUILD_TESTING=OFF \
         -DCMAKE_C_FLAGS="-march=$MARCH -funroll-loops -fomit-frame-pointer -flto=thin" \
         -DCMAKE_CXX_FLAGS="-march=$MARCH -funroll-loops -fomit-frame-pointer -flto=thin" \
         -DCMAKE_EXE_LINKER_FLAGS="-fuse-ld=lld" \
         -DCMAKE_SHARED_LINKER_FLAGS="-fuse-ld=lld" \
         .
+  CXXFLAGS="-Wno-uninitialized-const-pointer" CFLAGS="-Wno-uninitialized-const-pointer" \
   make -j $THREADS install/strip
   ;;
 linux-arm64|linux-arm64-baseline)
