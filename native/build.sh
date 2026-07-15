@@ -119,8 +119,8 @@ cmake -DCMAKE_BUILD_TYPE=Release \
         -DBUILD_BENCHMARKS=false \
         -DBUILD_EXAMPLES=false \
         -DBUILD_TOOLS=false \
-        -DCMAKE_C_FLAGS="-march=$MARCH -flto -Wno-maybe-uninitialized" \
-        -DCMAKE_CXX_FLAGS="-march=$MARCH -flto -Wno-maybe-uninitialized" \
+        -DCMAKE_C_FLAGS="-march=$MARCH" \
+        -DCMAKE_CXX_FLAGS="-march=$MARCH" \
         .
   make -j $THREADS install/strip
   ;;
@@ -153,8 +153,8 @@ linux-arm64|linux-arm64-baseline)
         -DBUILD_SHARED_LIBS=on \
         -DBUILD_SVE=$BUILD_SVE \
         -DBUILD_SVE2=$BUILD_SVE2 \
-        -DCMAKE_C_FLAGS="-march=$MARCH -flto" \
-        -DCMAKE_CXX_FLAGS="-march=$MARCH -flto" \
+        -DCMAKE_C_FLAGS="-march=$MARCH" \
+        -DCMAKE_CXX_FLAGS="-march=$MARCH" \
         -DBUILD_BENCHMARKS=false \
         -DBUILD_EXAMPLES=false \
         .
