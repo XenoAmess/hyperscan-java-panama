@@ -119,8 +119,8 @@ cmake -DCMAKE_BUILD_TYPE=Release \
         -DBUILD_BENCHMARKS=false \
         -DBUILD_EXAMPLES=false \
         -DBUILD_TOOLS=false \
-        -DCMAKE_C_FLAGS="-march=$MARCH -flto" \
-        -DCMAKE_CXX_FLAGS="-march=$MARCH -flto" \
+        -DCMAKE_C_FLAGS="-march=$MARCH -flto -Wno-maybe-uninitialized" \
+        -DCMAKE_CXX_FLAGS="-march=$MARCH -flto -Wno-maybe-uninitialized" \
         .
   make -j $THREADS install/strip
   ;;
