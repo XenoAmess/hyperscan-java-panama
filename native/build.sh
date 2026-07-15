@@ -119,8 +119,8 @@ cmake -DCMAKE_BUILD_TYPE=Release \
         -DBUILD_BENCHMARKS=false \
         -DBUILD_EXAMPLES=false \
         -DBUILD_TOOLS=false \
-        -DCMAKE_C_FLAGS="-march=$MARCH" \
-        -DCMAKE_CXX_FLAGS="-march=$MARCH" \
+        -DCMAKE_C_FLAGS="-march=$MARCH -funroll-loops -fomit-frame-pointer" \
+        -DCMAKE_CXX_FLAGS="-march=$MARCH -funroll-loops -fomit-frame-pointer" \
         .
   make -j $THREADS install/strip
   ;;
