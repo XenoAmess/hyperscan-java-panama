@@ -125,7 +125,8 @@ cmake -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_EXE_LINKER_FLAGS="-fuse-ld=lld" \
         -DCMAKE_SHARED_LINKER_FLAGS="-fuse-ld=lld" \
         .
-  CXXFLAGS="-Wno-uninitialized-const-pointer" CFLAGS="-Wno-uninitialized-const-pointer" \
+  # Clang 22 flags gtest internal uninitialized const pointer; patch it before build
+  sed -i '/int dummy;/s/int dummy;/int dummy{};/' unit/gtest/gtest-all.cc 2>/dev/null || true
   make -j $THREADS install/strip
   ;;
 linux-arm64|linux-arm64-baseline)
