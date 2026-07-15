@@ -28,10 +28,10 @@ jobs:
             runner: ubuntu-24.04
             platform: linux-x86_64
           - os: linux
-            runner: ubuntu-24.04-arm
+            runner: ubuntu-24.04
             platform: linux-arm64-baseline
           - os: linux
-            runner: ubuntu-24.04-arm
+            runner: ubuntu-24.04
             platform: linux-arm64
           - os: windows
             runner: windows-latest
@@ -45,15 +45,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Build native binaries in centos container (x86_64)
-        if: ${{ matrix.os == 'linux' && !startsWith(matrix.platform, 'linux-arm64') }}
+      - name: Build native binaries in centos container
+        if: matrix.os == 'linux'
         uses: docker://ghcr.io/xenoamess/centos7-toolchain:clang22-lto
-        with:
-          args: '"cd native && ./build.sh"'
-
-      - name: Build native binaries in centos container (arm64)
-        if: ${{ matrix.os == 'linux' && startsWith(matrix.platform, 'linux-arm64') }}
-        uses: docker://ghcr.io/gliwka/centos7-toolchain:main@sha256:e6cf17223408bb4d1314be547d74b23d04bcf6480d2fe23822fb672a52775f76
         with:
           args: '"cd native && ./build.sh"'
 
