@@ -45,12 +45,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Build native binaries on Linux
+      - name: Build native binaries in centos container
         if: matrix.os == 'linux'
-        shell: bash
-        run: |
-          docker run --rm -v "$(pwd):/github/workspace" -w /github/workspace \
-            ghcr.io/xenoamess/centos7-toolchain:clang22-lto /bin/bash -l -c "cd native && ./build.sh"
+        uses: docker://ghcr.io/xenoamess/centos7-toolchain:clang22-lto
+        with:
+          args: '"cd native && ./build.sh"'
 
       - name: Set up Python (Windows)
         if: matrix.os == 'windows'
