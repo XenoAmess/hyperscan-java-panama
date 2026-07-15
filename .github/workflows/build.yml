@@ -27,12 +27,6 @@ jobs:
           - os: linux
             runner: ubuntu-24.04
             platform: linux-x86_64
-          - os: linux
-            runner: ubuntu-24.04
-            platform: linux-arm64-baseline
-          - os: linux
-            runner: ubuntu-24.04
-            platform: linux-arm64
           - os: windows
             runner: windows-latest
             platform: windows-x86_64-baseline
