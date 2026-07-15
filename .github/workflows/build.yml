@@ -28,10 +28,10 @@ jobs:
             runner: ubuntu-24.04
             platform: linux-x86_64
           - os: linux
-            runner: ubuntu-24.04-arm
+            runner: ubuntu-24.04
             platform: linux-arm64-baseline
           - os: linux
-            runner: ubuntu-24.04-arm
+            runner: ubuntu-24.04
             platform: linux-arm64
           - os: windows
             runner: windows-latest
@@ -49,13 +49,8 @@ jobs:
         if: matrix.os == 'linux'
         shell: bash
         run: |
-          if [ "${{ matrix.runner }}" = "ubuntu-24.04-arm" ]; then
-            CONTAINER="ghcr.io/gliwka/centos7-toolchain:main@sha256:e6cf17223408bb4d1314be547d74b23d04bcf6480d2fe23822fb672a52775f76"
-          else
-            CONTAINER="ghcr.io/xenoamess/centos7-toolchain:clang22-lto"
-          fi
           docker run --rm -v "$(pwd):/github/workspace" -w /github/workspace \
-            "$CONTAINER" /bin/bash -l -c "cd native && ./build.sh"
+            ghcr.io/xenoamess/centos7-toolchain:clang22-lto /bin/bash -l -c "cd native && ./build.sh"
 
       - name: Set up Python (Windows)
         if: matrix.os == 'windows'

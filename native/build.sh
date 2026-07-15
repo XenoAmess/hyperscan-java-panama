@@ -158,8 +158,10 @@ linux-arm64|linux-arm64-baseline)
         -DBUILD_SHARED_LIBS=on \
         -DBUILD_SVE=$BUILD_SVE \
         -DBUILD_SVE2=$BUILD_SVE2 \
-        -DCMAKE_C_FLAGS="-march=$MARCH" \
-        -DCMAKE_CXX_FLAGS="-march=$MARCH" \
+        -DCMAKE_C_FLAGS="-march=$MARCH -funroll-loops -fomit-frame-pointer -flto=thin" \
+        -DCMAKE_CXX_FLAGS="-march=$MARCH -funroll-loops -fomit-frame-pointer -flto=thin" \
+        -DCMAKE_EXE_LINKER_FLAGS="-fuse-ld=lld" \
+        -DCMAKE_SHARED_LINKER_FLAGS="-fuse-ld=lld" \
         -DBUILD_BENCHMARKS=false \
         -DBUILD_EXAMPLES=false \
         .
