@@ -21,6 +21,8 @@ public interface HyperscanJni {
     int hsCompilerError();
     int hsScanTerminated();
     int hsModeBlock();
+    int hsModeStream();
+    int hsModeVector();
 
     int hsFlagCaseless();
     int hsFlagDotall();
@@ -90,6 +92,33 @@ public interface HyperscanJni {
             MemorySegment db,
             MemorySegment data,
             int length,
+            int flags,
+            MemorySegment scratch,
+            MemorySegment onEvent,
+            MemorySegment context
+    );
+
+    int hsOpenStream(MemorySegment db, int flags, MemorySegment stream);
+
+    int hsScanStream(
+            MemorySegment stream,
+            MemorySegment data,
+            int length,
+            int flags,
+            MemorySegment scratch,
+            MemorySegment onEvent,
+            MemorySegment context
+    );
+
+    int hsCloseStream(MemorySegment stream, MemorySegment scratch, MemorySegment onEvent, MemorySegment context);
+
+    int hsResetStream(MemorySegment stream, int flags, MemorySegment scratch, MemorySegment onEvent, MemorySegment context);
+
+    int hsScanVector(
+            MemorySegment db,
+            MemorySegment data,
+            MemorySegment length,
+            int count,
             int flags,
             MemorySegment scratch,
             MemorySegment onEvent,

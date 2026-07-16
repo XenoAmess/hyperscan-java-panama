@@ -1,6 +1,7 @@
 package com.xenoamess.hyperscan_panama.wrapper;
 
 import com.xenoamess.hyperscan_panama.util.PatternFilter;
+import org.openjdk.jmh.annotations.Mode;
 import org.openjdk.jmh.annotations.*;
 
 import java.io.IOException;

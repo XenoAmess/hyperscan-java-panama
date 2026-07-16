@@ -113,7 +113,10 @@ public class Database implements Closeable {
             Arrays.stream(ExpressionFlag.values())
                     .collect(Collectors.toMap(ExpressionFlag::getBits, identity()));
 
-    private Database(MemorySegment database, List<Expression> expressions) {
+    private final Mode mode;
+
+    private Database(MemorySegment database, List<Expression> expressions, Mode mode) {
+        this.mode = mode;
         this.state = new State(database);
         this.cleanable = CLEANER.register(this, state);
         this.expressionCount = expressions.size();
@@ -226,6 +229,21 @@ public class Database implements Closeable {
      * @throws CompileErrorException If any of the expressions cannot be compiled
      */
     public static Database compile(List<Expression> expressions) throws CompileErrorException {
+        return compile(expressions, Mode.BLOCK);
+    }
+
+    /**
+     * Compiles a list of expressions into a database in the given mode.
+     * Block-mode databases work with the block scanning methods, stream-mode
+     * databases with {@link Scanner#openStream(Database)}, and vectored-mode
+     * databases with the vectored scanning methods.
+     *
+     * @param expressions List of expressions to compile
+     * @param mode        Compilation mode
+     * @return Compiled database
+     * @throws CompileErrorException If any of the expressions cannot be compiled
+     */
+    public static Database compile(List<Expression> expressions, Mode mode) throws CompileErrorException {
         if (expressions == null) {
             throw new NullPointerException("expressions must not be null");
         }
@@ -245,7 +263,7 @@ public class Database implements Closeable {
                     nativeExpressions.getNativeFlags(),
                     nativeExpressions.getNativeIds(),
                     nativeExpressions.getSize(),
-                    JNI.hsModeBlock(),
+                    nativeMode(mode),
                     MemorySegment.NULL,
                     db,
                     error);
@@ -257,8 +275,35 @@ public class Database implements Closeable {
 
             MemorySegment database = db.get(ValueLayout.ADDRESS, 0);
             database = database.reinterpret(Long.MAX_VALUE);
-            return new Database(database, expressions);
+            return new Database(database, expressions, mode);
         }
+    }
+
+    /**
+     * compile an expression into a database in the given mode to use for scanning
+     *
+     * @param expression Expression to compile
+     * @param mode       Compilation mode
+     * @return Compiled database
+     * @throws CompileErrorException If the expression cannot be compiled
+     */
+    public static Database compile(Expression expression, Mode mode) throws CompileErrorException {
+        return compile(singletonList(expression), mode);
+    }
+
+    private static int nativeMode(Mode mode) {
+        switch (mode) {
+            case STREAM:
+                return JNI.hsModeStream();
+            case VECTORED:
+                return JNI.hsModeVector();
+            default:
+                return JNI.hsModeBlock();
+        }
+    }
+
+    Mode getMode() {
+        return mode;
     }
 
     MemorySegment getDatabase() {
@@ -467,7 +512,9 @@ public class Database implements Closeable {
             }
             MemorySegment database = db.get(ValueLayout.ADDRESS, 0);
             database = database.reinterpret(Long.MAX_VALUE);
-            return new Database(database, expressions);
+            // The mode is not recoverable from the serialized form; leave it
+            // unknown so API-level mode validation is skipped for loaded databases.
+            return new Database(database, expressions, null);
         }
     }
 

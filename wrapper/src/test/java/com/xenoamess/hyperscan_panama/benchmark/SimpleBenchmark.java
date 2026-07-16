@@ -1,6 +1,7 @@
 package com.xenoamess.hyperscan_panama.benchmark;
 
 import com.xenoamess.hyperscan_panama.wrapper.*;
+import org.openjdk.jmh.annotations.Mode;
 import org.openjdk.jmh.annotations.*;
 import org.openjdk.jmh.infra.Blackhole;
 

@@ -293,7 +293,7 @@ public class Scanner implements Closeable {
     private static MemorySegment getScanBuffer(byte[] data, int offset, int length) {
         MemorySegment buffer = SCAN_BUFFER.get();
         if (buffer == MemorySegment.NULL || buffer.byteSize() < length) {
-            buffer = SCAN_BUFFER_ARENA.allocate(length, 64);
+            buffer = SCAN_BUFFER_ARENA.allocate(Math.max(length, 1), 64);
             SCAN_BUFFER.set(buffer);
         }
         UNSAFE.copyMemory(data, Unsafe.ARRAY_BYTE_BASE_OFFSET + offset, null, buffer.address(), length);
@@ -303,7 +303,7 @@ public class Scanner implements Closeable {
     private static MemorySegment getScanBuffer(ByteBuffer input, int position, int length) {
         MemorySegment buffer = SCAN_BUFFER.get();
         if (buffer == MemorySegment.NULL || buffer.byteSize() < length) {
-            buffer = SCAN_BUFFER_ARENA.allocate(length, 64);
+            buffer = SCAN_BUFFER_ARENA.allocate(Math.max(length, 1), 64);
             SCAN_BUFFER.set(buffer);
         }
         UNSAFE.copyMemory(input.array(), Unsafe.ARRAY_BYTE_BASE_OFFSET + input.arrayOffset() + position,
@@ -466,6 +466,308 @@ public class Scanner implements Closeable {
         ctx.mapping = null;
         int hsError = scanRaw(db, input, offset, length);
         return hsError == JNI.hsScanTerminated();
+    }
+
+    /**
+     * Scans a sequence of byte arrays as one logical input using the vectored
+     * scanning mode. The segments are matched as if concatenated, and reported
+     * byte indices are relative to the start of the first segment.
+     * Requires a database compiled with {@link Mode#VECTORED}.
+     * Neither the array nor its elements may be null.
+     *
+     * @param db           Database containing expressions to use for matching.
+     * @param inputs       Segments to match against.
+     * @param eventHandler Handler to receive match events with byte indices.
+     */
+    public void scanVector(final Database db, final byte[][] inputs, ByteMatchEventHandler eventHandler) {
+        int total = 0;
+        for (byte[] input : inputs) {
+            total += input.length;
+        }
+        MemorySegment buffer = SCAN_BUFFER.get();
+        if (buffer == MemorySegment.NULL || buffer.byteSize() < total) {
+            buffer = SCAN_BUFFER_ARENA.allocate(Math.max(total, 1), 64);
+            SCAN_BUFFER.set(buffer);
+        }
+        long offset = 0;
+        for (byte[] input : inputs) {
+            UNSAFE.copyMemory(input, Unsafe.ARRAY_BYTE_BASE_OFFSET, null, buffer.address() + offset, input.length);
+            offset += input.length;
+        }
+        int[] lengths = new int[inputs.length];
+        long[] starts = new long[inputs.length];
+        offset = 0;
+        for (int i = 0; i < inputs.length; i++) {
+            lengths[i] = inputs[i].length;
+            starts[i] = offset;
+            offset += inputs[i].length;
+        }
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment dataPtrs = arena.allocate(ValueLayout.ADDRESS, inputs.length);
+            MemorySegment lengthSeg = arena.allocate(ValueLayout.JAVA_INT, inputs.length);
+            for (int i = 0; i < inputs.length; i++) {
+                dataPtrs.setAtIndex(ValueLayout.ADDRESS, i, buffer.asSlice(starts[i], lengths[i]));
+                lengthSeg.setAtIndex(ValueLayout.JAVA_INT, i, lengths[i]);
+            }
+            scanVectorRaw(db, dataPtrs, lengthSeg, inputs.length, eventHandler);
+        }
+    }
+
+    /**
+     * Scans a sequence of {@link ByteBuffer}s as one logical input using the
+     * vectored scanning mode. For every segment, bytes from position to limit
+     * are scanned; positions and limits are not modified.
+     * Direct segments are scanned zero-copy; heap segments are first copied
+     * into a reused per-thread native buffer.
+     * The segments are matched as if concatenated, and reported byte indices
+     * are relative to the start of the first segment.
+     * Requires a database compiled with {@link Mode#VECTORED}.
+     * Neither the array nor its elements may be null.
+     *
+     * @param db           Database containing expressions to use for matching.
+     * @param inputs       Segments to match against.
+     * @param eventHandler Handler to receive match events with byte indices.
+     */
+    public void scanVector(final Database db, final ByteBuffer[] inputs, ByteMatchEventHandler eventHandler) {
+        int heapTotal = 0;
+        for (ByteBuffer input : inputs) {
+            if (!input.isDirect()) {
+                heapTotal += input.remaining();
+            }
+        }
+        MemorySegment bulk = null;
+        if (heapTotal > 0) {
+            bulk = SCAN_BUFFER.get();
+            if (bulk == MemorySegment.NULL || bulk.byteSize() < heapTotal) {
+                bulk = SCAN_BUFFER_ARENA.allocate(heapTotal, 64);
+                SCAN_BUFFER.set(bulk);
+            }
+        }
+        int n = inputs.length;
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment dataPtrs = arena.allocate(ValueLayout.ADDRESS, n);
+            MemorySegment lengthSeg = arena.allocate(ValueLayout.JAVA_INT, n);
+            long bulkOffset = 0;
+            for (int i = 0; i < n; i++) {
+                ByteBuffer input = inputs[i];
+                int length = input.remaining();
+                lengthSeg.setAtIndex(ValueLayout.JAVA_INT, i, length);
+                if (input.isDirect()) {
+                    dataPtrs.setAtIndex(ValueLayout.ADDRESS, i,
+                            MemorySegment.ofBuffer(input).asSlice(input.position(), length));
+                } else {
+                    UNSAFE.copyMemory(input.array(), Unsafe.ARRAY_BYTE_BASE_OFFSET + input.arrayOffset() + input.position(),
+                            null, bulk.address() + bulkOffset, length);
+                    dataPtrs.setAtIndex(ValueLayout.ADDRESS, i, bulk.asSlice(bulkOffset, length));
+                    bulkOffset += length;
+                }
+            }
+            scanVectorRaw(db, dataPtrs, lengthSeg, n, eventHandler);
+        }
+    }
+
+    private int scanVectorRaw(final Database db, final MemorySegment dataPtrs, final MemorySegment lengthSeg,
+                              final int count, ByteMatchEventHandler eventHandler) {
+        if (db.getMode() != null && db.getMode() != Mode.VECTORED) {
+            throw new IllegalArgumentException("Vectored scanning requires a database compiled with Mode.VECTORED");
+        }
+        CallbackContext ctx = ACTIVE_CONTEXT.get();
+        if (ctx.inUse) {
+            throw new IllegalStateException("Recursive scanning is not supported.");
+        }
+        ctx.inUse = true;
+        ctx.db = db;
+        ctx.byteHandler = eventHandler;
+        ctx.stringHandler = null;
+        ctx.rawHandler = null;
+        ctx.mapping = null;
+        ctx.expressionsById = db.getExpressionsById();
+        ctx.sparseExpressions = db.getSparseExpressions();
+        try {
+            MemorySegment scratch = state.getScratch();
+            if (scratch.address() == 0) {
+                throw new IllegalStateException("Scratch space has not been allocated. Call allocScratch() before scanning.");
+            }
+            int hsError = JNI.hsScanVector(db.getDatabase(), dataPtrs, lengthSeg, count, 0, scratch, MATCH_HANDLER, MemorySegment.NULL);
+            if (hsError != 0 && hsError != JNI.hsScanTerminated()) {
+                throw HyperscanException.hsErrorToException(hsError);
+            }
+            return hsError;
+        } finally {
+            ctx.inUse = false;
+            ctx.rawHandler = null;
+            ctx.byteHandler = null;
+            ctx.stringHandler = null;
+            ctx.mapping = null;
+            ctx.expressionsById = null;
+            ctx.sparseExpressions = null;
+        }
+    }
+
+    /**
+     * Opens a streaming scan session over the given database. The returned
+     * stream shares this scanner's scratch space and must be closed after use,
+     * preferably with try-with-resources. Closing without a handler discards
+     * pending matches; use {@link Stream#close(ByteMatchEventHandler)} to
+     * receive them.
+     * Not thread-safe, just like the owning scanner.
+     * Requires a database compiled with {@link Mode#STREAM}.
+     *
+     * @param db Database containing expressions to use for matching.
+     * @return Open stream ready for scanning.
+     */
+    public Stream openStream(final Database db) {
+        if (db.getMode() != null && db.getMode() != Mode.STREAM) {
+            throw new IllegalArgumentException("Streaming requires a database compiled with Mode.STREAM");
+        }
+        MemorySegment nativeStream;
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment streamOut = arena.allocate(ValueLayout.ADDRESS);
+            int hsError = JNI.hsOpenStream(db.getDatabase(), 0, streamOut);
+            if (hsError != 0) {
+                throw HyperscanException.hsErrorToException(hsError);
+            }
+            nativeStream = streamOut.get(ValueLayout.ADDRESS, 0);
+        }
+        return new Stream(db, nativeStream);
+    }
+
+    /**
+     * A streaming scan session created by {@link Scanner#openStream(Database)}.
+     * Input is fed in chunks via {@link #scan(byte[], ByteMatchEventHandler)}
+     * or {@link #scan(ByteBuffer, ByteMatchEventHandler)}; matches are reported
+     * with byte offsets relative to the start of the stream, so patterns
+     * spanning chunk boundaries are matched transparently.
+     * Not thread-safe; the stream shares the owning scanner's scratch space.
+     */
+    public class Stream implements Closeable {
+        private final Database database;
+        private MemorySegment nativeStream;
+
+        private Stream(final Database database, final MemorySegment nativeStream) {
+            this.database = database;
+            this.nativeStream = nativeStream;
+        }
+
+        /**
+         * Feeds one chunk of input to the stream.
+         *
+         * @param input        Chunk to match against, may be empty (flush only).
+         * @param eventHandler Handler to receive match events with byte indices.
+         */
+        public void scan(final byte[] input, ByteMatchEventHandler eventHandler) {
+            ensureOpen();
+            MemorySegment data = getScanBuffer(input, 0, input.length);
+            scanStreamRaw(data, input.length, eventHandler);
+        }
+
+        /**
+         * Feeds one chunk of input to the stream. Bytes from the buffer's
+         * current position to its limit are scanned; position and limit are
+         * not modified. Direct buffers are scanned zero-copy, heap buffers are
+         * first copied into a reused per-thread native buffer.
+         *
+         * @param input        Chunk to match against.
+         * @param eventHandler Handler to receive match events with byte indices.
+         */
+        public void scan(final ByteBuffer input, ByteMatchEventHandler eventHandler) {
+            ensureOpen();
+            int position = input.position();
+            int length = input.remaining();
+            if (input.isDirect()) {
+                scanStreamRaw(MemorySegment.ofBuffer(input).asSlice(position, length), length, eventHandler);
+            } else {
+                scanStreamRaw(getScanBuffer(input, position, length), length, eventHandler);
+            }
+        }
+
+        /**
+         * Closes the stream and discards any pending matches.
+         */
+        @Override
+        public void close() {
+            if (nativeStream != null) {
+                MemorySegment stream = nativeStream;
+                nativeStream = null;
+                int hsError = JNI.hsCloseStream(stream, state.getScratch(), MemorySegment.NULL, MemorySegment.NULL);
+                if (hsError != 0 && hsError != JNI.hsScanTerminated()) {
+                    throw HyperscanException.hsErrorToException(hsError);
+                }
+            }
+        }
+
+        /**
+         * Closes the stream, reporting any matches still pending at the end of
+         * the stream to the given handler.
+         *
+         * @param eventHandler Handler to receive trailing match events.
+         */
+        public void close(final ByteMatchEventHandler eventHandler) {
+            if (nativeStream == null) {
+                return;
+            }
+            CallbackContext ctx = ACTIVE_CONTEXT.get();
+            if (ctx.inUse) {
+                throw new IllegalStateException("Recursive scanning is not supported.");
+            }
+            ctx.inUse = true;
+            ctx.db = database;
+            ctx.byteHandler = eventHandler;
+            ctx.stringHandler = null;
+            ctx.rawHandler = null;
+            ctx.mapping = null;
+            ctx.expressionsById = database.getExpressionsById();
+            ctx.sparseExpressions = database.getSparseExpressions();
+            MemorySegment stream = nativeStream;
+            nativeStream = null;
+            try {
+                int hsError = JNI.hsCloseStream(stream, state.getScratch(), MATCH_HANDLER, MemorySegment.NULL);
+                if (hsError != 0 && hsError != JNI.hsScanTerminated()) {
+                    throw HyperscanException.hsErrorToException(hsError);
+                }
+            } finally {
+                ctx.inUse = false;
+                ctx.byteHandler = null;
+                ctx.expressionsById = null;
+                ctx.sparseExpressions = null;
+            }
+        }
+
+        private void scanStreamRaw(final MemorySegment data, final int length, ByteMatchEventHandler eventHandler) {
+            CallbackContext ctx = ACTIVE_CONTEXT.get();
+            if (ctx.inUse) {
+                throw new IllegalStateException("Recursive scanning is not supported.");
+            }
+            ctx.inUse = true;
+            ctx.db = database;
+            ctx.byteHandler = eventHandler;
+            ctx.stringHandler = null;
+            ctx.rawHandler = null;
+            ctx.mapping = null;
+            ctx.expressionsById = database.getExpressionsById();
+            ctx.sparseExpressions = database.getSparseExpressions();
+            try {
+                MemorySegment scratch = state.getScratch();
+                if (scratch.address() == 0) {
+                    throw new IllegalStateException("Scratch space has not been allocated. Call allocScratch() before scanning.");
+                }
+                int hsError = JNI.hsScanStream(nativeStream, data, length, 0, scratch, MATCH_HANDLER, MemorySegment.NULL);
+                if (hsError != 0 && hsError != JNI.hsScanTerminated()) {
+                    throw HyperscanException.hsErrorToException(hsError);
+                }
+            } finally {
+                ctx.inUse = false;
+                ctx.byteHandler = null;
+                ctx.expressionsById = null;
+                ctx.sparseExpressions = null;
+            }
+        }
+
+        private void ensureOpen() {
+            if (nativeStream == null) {
+                throw new IllegalStateException("Stream is already closed");
+            }
+        }
     }
 
     @Override

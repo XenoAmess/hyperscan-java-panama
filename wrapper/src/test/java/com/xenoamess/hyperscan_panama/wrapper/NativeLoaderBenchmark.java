@@ -2,6 +2,7 @@ package com.xenoamess.hyperscan_panama.wrapper;
 
 import com.xenoamess.hyperscan_panama.jni.HyperscanJni;
 import com.xenoamess.hyperscan_panama.jni.HyperscanNativeLoader;
+import org.openjdk.jmh.annotations.Mode;
 import org.openjdk.jmh.annotations.*;
 import org.openjdk.jmh.infra.Blackhole;
 

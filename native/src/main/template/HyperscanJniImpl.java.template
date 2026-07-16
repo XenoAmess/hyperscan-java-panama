@@ -40,6 +40,16 @@ public final class HyperscanJniImpl implements HyperscanJni {
     }
 
     @Override
+    public int hsModeStream() {
+        return hyperscan.HS_MODE_STREAM();
+    }
+
+    @Override
+    public int hsModeVector() {
+        return hyperscan.HS_MODE_VECTORED();
+    }
+
+    @Override
     public int hsFlagCaseless() {
         return hyperscan.HS_FLAG_CASELESS();
     }
@@ -189,6 +199,31 @@ public final class HyperscanJniImpl implements HyperscanJni {
     @Override
     public int hsScan(MemorySegment db, MemorySegment data, int length, int flags, MemorySegment scratch, MemorySegment onEvent, MemorySegment context) {
         return hyperscan.hs_scan(db, data, length, flags, scratch, onEvent, context);
+    }
+
+    @Override
+    public int hsOpenStream(MemorySegment db, int flags, MemorySegment stream) {
+        return hyperscan.hs_open_stream(db, flags, stream);
+    }
+
+    @Override
+    public int hsScanStream(MemorySegment stream, MemorySegment data, int length, int flags, MemorySegment scratch, MemorySegment onEvent, MemorySegment context) {
+        return hyperscan.hs_scan_stream(stream, data, length, flags, scratch, onEvent, context);
+    }
+
+    @Override
+    public int hsCloseStream(MemorySegment stream, MemorySegment scratch, MemorySegment onEvent, MemorySegment context) {
+        return hyperscan.hs_close_stream(stream, scratch, onEvent, context);
+    }
+
+    @Override
+    public int hsResetStream(MemorySegment stream, int flags, MemorySegment scratch, MemorySegment onEvent, MemorySegment context) {
+        return hyperscan.hs_reset_stream(stream, flags, scratch, onEvent, context);
+    }
+
+    @Override
+    public int hsScanVector(MemorySegment db, MemorySegment data, MemorySegment length, int count, int flags, MemorySegment scratch, MemorySegment onEvent, MemorySegment context) {
+        return hyperscan.hs_scan_vector(db, data, length, count, flags, scratch, onEvent, context);
     }
 
     @Override
