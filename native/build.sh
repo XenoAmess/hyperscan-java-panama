@@ -158,6 +158,7 @@ linux-arm64|linux-arm64-baseline)
         -DBUILD_SHARED_LIBS=on \
         -DBUILD_SVE=$BUILD_SVE \
         -DBUILD_SVE2=$BUILD_SVE2 \
+        -DBUILD_TOOLS=false \
         -DCMAKE_C_FLAGS="-march=$MARCH -funroll-loops -fomit-frame-pointer -flto=thin" \
         -DCMAKE_CXX_FLAGS="-march=$MARCH -funroll-loops -fomit-frame-pointer -flto=thin" \
         -DCMAKE_EXE_LINKER_FLAGS="-fuse-ld=lld" \
@@ -165,6 +166,7 @@ linux-arm64|linux-arm64-baseline)
         -DBUILD_BENCHMARKS=false \
         -DBUILD_EXAMPLES=false \
         .
+  sed -i '/int dummy;/s/int dummy;/int dummy{};/' unit/gtest/gtest-all.cc 2>/dev/null || true
   make -j $THREADS install/strip
   ;;
 macosx-x86_64|macosx-arm64)
