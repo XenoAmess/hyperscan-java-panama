@@ -400,7 +400,14 @@ public class Scanner implements Closeable {
         if (STRING_VALUE_OFFSET >= 0 && STRING_CODER_OFFSET >= 0
                 && UNSAFE.getByte(input, STRING_CODER_OFFSET) == 0) {
             byte[] value = (byte[]) UNSAFE.getObject(input, STRING_VALUE_OFFSET);
-            for (int i = 0; i < value.length; i++) {
+            int i = 0;
+            int wordLimit = value.length & ~7;
+            for (; i < wordLimit; i += 8) {
+                if ((UNSAFE.getLong(value, Unsafe.ARRAY_BYTE_BASE_OFFSET + i) & 0x8080808080808080L) != 0) {
+                    return false;
+                }
+            }
+            for (; i < value.length; i++) {
                 if (value[i] < 0) {
                     return false;
                 }
