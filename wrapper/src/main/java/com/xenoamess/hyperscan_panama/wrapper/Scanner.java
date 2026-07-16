@@ -271,10 +271,8 @@ public class Scanner implements Closeable {
             MemorySegment data = directBufferSegment(input);
             scanRaw(db, data, length);
         } else {
-            try (Arena arena = Arena.ofConfined()) {
-                MemorySegment data = getNativeSegment(arena, input, position, length);
-                scanRaw(db, data, length);
-            }
+            MemorySegment data = getScanBuffer(input, position, length);
+            scanRaw(db, data, length);
         }
     }
 
@@ -299,6 +297,17 @@ public class Scanner implements Closeable {
             SCAN_BUFFER.set(buffer);
         }
         UNSAFE.copyMemory(data, Unsafe.ARRAY_BYTE_BASE_OFFSET + offset, null, buffer.address(), length);
+        return buffer;
+    }
+
+    private static MemorySegment getScanBuffer(ByteBuffer input, int position, int length) {
+        MemorySegment buffer = SCAN_BUFFER.get();
+        if (buffer == MemorySegment.NULL || buffer.byteSize() < length) {
+            buffer = SCAN_BUFFER_ARENA.allocate(length, 64);
+            SCAN_BUFFER.set(buffer);
+        }
+        UNSAFE.copyMemory(input.array(), Unsafe.ARRAY_BYTE_BASE_OFFSET + input.arrayOffset() + position,
+                null, buffer.address(), length);
         return buffer;
     }
 
@@ -346,10 +355,11 @@ public class Scanner implements Closeable {
     private int scanRaw(final Database db, final ByteBuffer input) {
         int position = input.position();
         int length = input.remaining();
-        try (Arena arena = Arena.ofConfined()) {
-            MemorySegment data = getNativeSegment(arena, input, position, length);
+        if (input.isDirect()) {
+            MemorySegment data = MemorySegment.ofBuffer(input).asSlice(position, length);
             return scanRaw(db, data, length);
         }
+        return scanRaw(db, getScanBuffer(input, position, length), length);
     }
 
     private int scanRaw(final Database db, final MemorySegment data, final int length) {
@@ -401,19 +411,6 @@ public class Scanner implements Closeable {
             }
         }
         return true;
-    }
-
-    private static MemorySegment getNativeSegment(Arena arena, ByteBuffer input, int position, int length) {
-        if (input.isDirect()) {
-            return MemorySegment.ofBuffer(input).asSlice(position, length);
-        } else {
-            byte[] array = input.array();
-            int offset = input.arrayOffset() + position;
-            MemorySegment source = MemorySegment.ofArray(array).asSlice(offset, length);
-            MemorySegment segment = arena.allocate(length);
-            segment.copyFrom(source);
-            return segment;
-        }
     }
 
     public boolean hasMatch(final Database db, final ByteBuffer input) {
