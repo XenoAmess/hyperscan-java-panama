@@ -234,8 +234,8 @@ public class Database implements Closeable {
         }
 
         try (
-                NativeExpressionCollection nativeExpressions = new NativeExpressionCollection(expressions);
-                Arena arena = Arena.ofConfined()
+                Arena arena = Arena.ofConfined();
+                NativeExpressionCollection nativeExpressions = new NativeExpressionCollection(expressions, arena)
         ) {
             MemorySegment error = arena.allocate(ValueLayout.ADDRESS);
             MemorySegment db = arena.allocate(ValueLayout.ADDRESS);

@@ -24,9 +24,24 @@ class NativeExpressionCollection implements Closeable {
     private final int size;
 
     private final Arena arena;
+    private final boolean ownsArena;
 
     NativeExpressionCollection(List<Expression> expressions) {
-        this.arena = Arena.ofConfined();
+        this(expressions, Arena.ofConfined(), true);
+    }
+
+    /**
+     * Creates a collection whose native memory is allocated from the given
+     * arena. The arena is NOT closed by {@link #close()}; the caller owns its
+     * lifecycle.
+     */
+    NativeExpressionCollection(List<Expression> expressions, Arena arena) {
+        this(expressions, arena, false);
+    }
+
+    private NativeExpressionCollection(List<Expression> expressions, Arena arena, boolean ownsArena) {
+        this.arena = arena;
+        this.ownsArena = ownsArena;
         this.size = expressions.size();
 
         boolean expressionWithoutId = false;
@@ -74,6 +89,8 @@ class NativeExpressionCollection implements Closeable {
 
     @Override
     public void close() {
-        arena.close();
+        if (ownsArena) {
+            arena.close();
+        }
     }
 }
