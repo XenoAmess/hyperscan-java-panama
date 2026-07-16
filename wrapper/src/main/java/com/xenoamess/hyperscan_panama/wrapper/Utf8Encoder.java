@@ -38,20 +38,31 @@ class Utf8Encoder {
     /**
      * Encodes a Java String to a direct ByteBuffer containing UTF-8 bytes
      * and creates a mapping from byte index to character index.
+     * The table is created lazily when the first non-ASCII character is
+     * encountered, sized by the worst-case encoded length (3 bytes per
+     * remaining char) with an identity-backfilled ASCII prefix, instead of
+     * being sized by the buffer capacity. Returns null for pure-ASCII input,
+     * where byte index == char index and no table is needed.
      *
      * @param buffer The ByteBuffer to write the UTF-8 bytes to
      * @param string The Java String to encode
-     * @return An array of int values representing the mapping from byte index to character index
+     * @return The mapping from byte index to character index, or null for pure-ASCII input
      */
     static ByteCharMapping encodeToBufferAndMap(ByteBuffer buffer, String string) {
-        ByteCharMapping mapping = ByteCharMapping.create(buffer.capacity(), string.length());
+        ByteCharMapping mapping = null;
 
         int writerIndex = 0;
         int end = string.length();
         for (int i = 0; i < end; i++) {
             char c = string.charAt(i);
+            if (mapping == null && c >= UTF8_1_BYTE_LIMIT) {
+                mapping = createMapping(string.length(), writerIndex, end - i);
+            }
             if (c < UTF8_1_BYTE_LIMIT) {
-                mapping.setCharIndex(writerIndex++, i);
+                if (mapping != null) {
+                    mapping.setCharIndex(writerIndex, i);
+                }
+                writerIndex++;
                 buffer.put((byte) c);
             } else if (c < UTF8_2_BYTE_LIMIT) {
                 mapping.setCharIndex(writerIndex++, i);
@@ -104,6 +115,16 @@ class Utf8Encoder {
 
         // Make JDK9+ compile for JDK 8
         ((Buffer)buffer).flip();
+        return mapping;
+    }
+
+    private static ByteCharMapping createMapping(int stringLength, int writerIndex, int remainingChars) {
+        // 3 bytes per remaining char is a safe upper bound (surrogate pairs are
+        // 4 bytes for 2 chars). The ASCII prefix is identity (byte index == char index).
+        ByteCharMapping mapping = ByteCharMapping.create(writerIndex + 3 * remainingChars, stringLength);
+        for (int b = 0; b < writerIndex; b++) {
+            mapping.setCharIndex(b, b);
+        }
         return mapping;
     }
 }
