@@ -13,24 +13,41 @@ public class Utf8EncoderTest {
     public void testAsciiEncoding() {
         String input = "Hello, world!";
         ByteBuffer buffer = ByteBuffer.allocate(100);
-        
+
         ByteCharMapping mapping = Utf8Encoder.encodeToBufferAndMap(buffer, input);
-        
-        // ASCII characters are 1 byte each in UTF-8, so byte index equals char index
+
+        // Pure-ASCII input needs no table: the encoder returns null and the
+        // caller treats byte index == char index.
+        assertNull(mapping);
         assertEquals(input.length(), buffer.limit());
-        assertEquals(0, mapping.getCharIndex(0));  // 'H'
-        assertEquals(6, mapping.getCharIndex(6));  // ','
-        assertEquals(12, mapping.getCharIndex(12)); // '!'
-        
+
         // Verify actual byte values
         byte[] bytes = new byte[buffer.limit()];
         buffer.get(bytes);
-        
+
         // Check that each byte matches the expected ASCII value
         for (int i = 0; i < input.length(); i++) {
-            assertEquals((byte)input.charAt(i), bytes[i], 
+            assertEquals((byte)input.charAt(i), bytes[i],
                 "Byte at index " + i + " should match ASCII value for '" + input.charAt(i) + "'");
         }
+    }
+
+    @Test
+    public void testMappingAllocatedOnFirstNonAscii() {
+        String input = "ab世cd";
+        ByteBuffer buffer = ByteBuffer.allocate(100);
+
+        ByteCharMapping mapping = Utf8Encoder.encodeToBufferAndMap(buffer, input);
+
+        assertNotNull(mapping);
+        assertEquals(7, buffer.limit());
+        assertEquals(0, mapping.getCharIndex(0));
+        assertEquals(1, mapping.getCharIndex(1));
+        assertEquals(2, mapping.getCharIndex(2));
+        assertEquals(2, mapping.getCharIndex(3));
+        assertEquals(2, mapping.getCharIndex(4));
+        assertEquals(3, mapping.getCharIndex(5));
+        assertEquals(4, mapping.getCharIndex(6));
     }
 
     @Test
