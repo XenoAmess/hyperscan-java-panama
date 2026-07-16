@@ -149,17 +149,21 @@ linux-arm64|linux-arm64-baseline)
 
   # The X86 sed is a no-op on ARM but kept for build script uniformity.
   sed -i 's/set(X86_ARCH "x86-64-v2")/set(X86_ARCH "westmere")/' cmake/cflags-x86.cmake
-  CC="clang" CXX="clang++" cmake \
+  CC=clang CXX=clang++ cmake \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX="$(pwd)/.." \
         -DCMAKE_INSTALL_LIBDIR="lib" \
+        -DCMAKE_C_COMPILER_TARGET=aarch64-linux-gnu \
+        -DCMAKE_CXX_COMPILER_TARGET=aarch64-linux-gnu \
         -DPCRE_SOURCE="." \
         -DFAT_RUNTIME=$FAT_RUNTIME \
         -DBUILD_SHARED_LIBS=on \
         -DBUILD_SVE=$BUILD_SVE \
         -DBUILD_SVE2=$BUILD_SVE2 \
-        -DCMAKE_C_FLAGS="-march=$MARCH -funroll-loops -fomit-frame-pointer" \
-        -DCMAKE_CXX_FLAGS="-march=$MARCH -funroll-loops -fomit-frame-pointer" \
+        -DCMAKE_C_FLAGS="-march=$MARCH -funroll-loops -fomit-frame-pointer -flto=thin" \
+        -DCMAKE_CXX_FLAGS="-march=$MARCH -funroll-loops -fomit-frame-pointer -flto=thin" \
+        -DCMAKE_EXE_LINKER_FLAGS="-fuse-ld=lld" \
+        -DCMAKE_SHARED_LINKER_FLAGS="-fuse-ld=lld" \
         -DBUILD_BENCHMARKS=false \
         -DBUILD_EXAMPLES=false \
         .
