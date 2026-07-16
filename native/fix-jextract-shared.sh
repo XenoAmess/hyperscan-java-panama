@@ -39,3 +39,35 @@ if grep -q 'public static final ValueLayout\.Of[A-Za-z]* C_LONG' "$SHARED_FILE";
   sed -i "s/public static final ValueLayout\.Of[A-Za-z]* C_LONG = (ValueLayout\.Of[A-Za-z]*) Linker\.nativeLinker()\.canonicalLayouts()\.get(\"long\");/public static final ValueLayout.${EXPECTED_TYPE} C_LONG = (ValueLayout.${EXPECTED_TYPE}) Linker.nativeLinker().canonicalLayouts().get(\"long\");/" "$SHARED_FILE"
   echo "Set C_LONG to ${EXPECTED_TYPE} in ${SHARED_FILE}"
 fi
+
+# Add Linker.Option.critical(true) to the downcall handles of short functions
+# that neither call back into Java nor block, cutting per-call FFM overhead.
+# Never apply this to hs_scan* (invokes the match callback), hs_close_stream
+# (may invoke it), or hs_compile* (long-running).
+HYPERSCAN_FILE="${OUTPUT_DIR}/com/xenoamess/hyperscan_panama/jni/${PLATFORM_PACKAGE}/generated/hyperscan.java"
+if [ -f "$HYPERSCAN_FILE" ]; then
+  CRITICAL_FUNCTIONS="hs_version hs_valid_platform hs_database_size hs_scratch_size hs_stream_size hs_database_info hs_serialized_database_info hs_free_database hs_free_scratch hs_free_compile_error"
+  awk -v funcs="$CRITICAL_FUNCTIONS" '
+    BEGIN {
+      n = split(funcs, names, " ")
+      for (i = 1; i <= n; i++) critical[names[i]] = 1
+    }
+    /^[[:space:]]*private static class [A-Za-z_][A-Za-z_0-9]* \{/ {
+      in_critical = ($4 in critical) ? 1 : 0
+    }
+    in_critical && /Linker\.nativeLinker\(\)\.downcallHandle\(ADDR, DESC\)/ {
+      sub(/downcallHandle\(ADDR, DESC\)/, "downcallHandle(ADDR, DESC, Linker.Option.critical(true))")
+      patched++
+    }
+    { print }
+    END {
+      if (patched == 0) {
+        print "WARNING: no downcall handles patched with Linker.Option.critical" > "/dev/stderr"
+      }
+    }
+  ' "$HYPERSCAN_FILE" > "$HYPERSCAN_FILE.tmp"
+  mv "$HYPERSCAN_FILE.tmp" "$HYPERSCAN_FILE"
+  echo "Patched critical(true) downcall handles in ${HYPERSCAN_FILE}"
+else
+  echo "WARNING: $HYPERSCAN_FILE not found, skipping critical(true) patch" >&2
+fi
