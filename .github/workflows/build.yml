@@ -194,11 +194,6 @@ jobs:
             $(find target/variant-m2 -type f -name "hyperscan-java-panama-native-${VERSION}-linux-x86_64-avx2.jar" | head -n1) \
             $(find target/variant-m2 -type f -name "hyperscan-java-panama-native-${VERSION}-linux-x86_64-baseline.jar" | head -n1)
 
-          # Merge linux-arm64 family.
-          merge_family "hyperscan-java-panama-native-${VERSION}-linux-arm64.jar" \
-            $(find target/variant-m2 -type f -name "hyperscan-java-panama-native-${VERSION}-linux-arm64.jar" | head -n1) \
-            $(find target/variant-m2 -type f -name "hyperscan-java-panama-native-${VERSION}-linux-arm64-baseline.jar" | head -n1)
-
           # Merge windows-x86_64 family.
           merge_family "hyperscan-java-panama-native-${VERSION}-windows-x86_64.jar" \
             $(find target/variant-m2 -type f -name "hyperscan-java-panama-native-${VERSION}-windows-x86_64.jar" | head -n1) \
@@ -226,8 +221,6 @@ jobs:
         include:
           - runner: ubuntu-24.04
             platform: linux-x86_64
-          - runner: ubuntu-24.04-arm
-            platform: linux-arm64
           - runner: windows-latest
             platform: windows-x86_64
     env:
