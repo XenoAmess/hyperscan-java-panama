@@ -340,7 +340,9 @@ public class Scanner implements Closeable {
         } else {
             buffer.clear();
         }
-        return buffer.slice(0, required);
+        // No slice(): the encoder flips the buffer at the end, so the limit is
+        // set to the number of bytes written either way.
+        return buffer;
     }
 
     private int scanRaw(final Database db, final byte[] data) {
