@@ -41,12 +41,18 @@ if grep -q 'public static final ValueLayout\.Of[A-Za-z]* C_LONG' "$SHARED_FILE";
 fi
 
 # Add Linker.Option.critical(true) to the downcall handles of short functions
-# that neither call back into Java nor block, cutting per-call FFM overhead.
-# Never apply this to hs_scan* (invokes the match callback), hs_close_stream
-# (may invoke it), or hs_compile* (long-running).
+# that can never call back into Java, cutting per-call FFM overhead.
+# A critical(true) downcall that reaches a Java upcall crashes the JVM
+# (upcallLinker.cpp guarantee: wrong thread state for upcall). This means:
+#   - excluded: hs_scan*, hs_close_stream (match callback), hs_compile* (long)
+#   - excluded: hs_free_database, hs_free_scratch, hs_free_compile_error,
+#     hs_database_info, hs_serialized_database_info — with a user-installed
+#     custom allocator (hs_set_allocator/hs_set_scratch_allocator), freeing or
+#     allocating inside these functions invokes the allocator upcall.
+# Only functions that write plain outputs and never touch an allocator qualify.
 HYPERSCAN_FILE="${OUTPUT_DIR}/com/xenoamess/hyperscan_panama/jni/${PLATFORM_PACKAGE}/generated/hyperscan.java"
 if [ -f "$HYPERSCAN_FILE" ]; then
-  CRITICAL_FUNCTIONS="hs_version hs_valid_platform hs_database_size hs_scratch_size hs_stream_size hs_database_info hs_serialized_database_info hs_free_database hs_free_scratch hs_free_compile_error"
+  CRITICAL_FUNCTIONS="hs_version hs_valid_platform hs_database_size hs_scratch_size hs_stream_size"
   awk -v funcs="$CRITICAL_FUNCTIONS" '
     BEGIN {
       n = split(funcs, names, " ")
