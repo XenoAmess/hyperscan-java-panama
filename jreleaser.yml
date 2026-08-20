@@ -20,6 +20,8 @@ deploy:
         stagingRepositories:
           - target/staging-deploy
         namespace: com.xenoamess
+        retryDelay: 10
+        maxRetries: 180
 
 signing:
   active: ALWAYS

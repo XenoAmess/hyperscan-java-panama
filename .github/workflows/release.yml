@@ -7,6 +7,10 @@ on:
         description: 'Native artifact version (leave empty for auto)'
         required: false
         default: ''
+      deploymentId:
+        description: 'Existing Maven Central deployment to resume'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -83,6 +87,7 @@ jobs:
           find target/staging-deploy -type f
 
       - name: Deploy to Maven Central
+        if: github.event.inputs.deploymentId == ''
         uses: jreleaser/release-action@v2
         with:
           version: 1.14.0
@@ -95,6 +100,56 @@ jobs:
           JRELEASER_GPG_PUBLIC_KEY: ${{ secrets.PUBLIC_KEY }}
           JRELEASER_GPG_SECRET_KEY: ${{ secrets.SIGN_KEY }}
           JRELEASER_GPG_PASSPHRASE: ${{ secrets.SIGN_KEY_PASS }}
+
+      - name: Resume Maven Central deployment
+        if: github.event.inputs.deploymentId != ''
+        env:
+          DEPLOYMENT_ID: ${{ github.event.inputs.deploymentId }}
+          CENTRAL_USERNAME: ${{ secrets.CENTRAL_TOKEN_USERNAME }}
+          CENTRAL_PASSWORD: ${{ secrets.CENTRAL_TOKEN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          AUTH=$(printf '%s:%s' "$CENTRAL_USERNAME" "$CENTRAL_PASSWORD" | base64 -w0)
+          STATUS_URL="https://central.sonatype.com/api/v1/publisher/status?id=$DEPLOYMENT_ID"
+          PUBLISH_URL="https://central.sonatype.com/api/v1/publisher/deployment/$DEPLOYMENT_ID"
+          PUBLISH_REQUESTED=false
+
+          for ATTEMPT in $(seq 1 180); do
+            if ! RESPONSE=$(curl --fail-with-body --silent --show-error \
+              -X POST -H "Authorization: Bearer $AUTH" "$STATUS_URL"); then
+              echo "Maven Central status request failed (attempt $ATTEMPT/180)" >&2
+              sleep 10
+              continue
+            fi
+            STATE=$(jq -r '.deploymentState' <<< "$RESPONSE")
+            echo "Maven Central deployment $DEPLOYMENT_ID is $STATE (attempt $ATTEMPT/180)"
+            case "$STATE" in
+              PUBLISHED)
+                exit 0
+                ;;
+              VALIDATED)
+                if [ "$PUBLISH_REQUESTED" = false ]; then
+                  curl --fail-with-body --silent --show-error \
+                    -X POST -H "Authorization: Bearer $AUTH" "$PUBLISH_URL"
+                  PUBLISH_REQUESTED=true
+                fi
+                ;;
+              FAILED)
+                jq '.errors' <<< "$RESPONSE"
+                exit 1
+                ;;
+              PENDING|VALIDATING|PUBLISHING)
+                ;;
+              *)
+                echo "Unexpected Maven Central deployment state: $STATE" >&2
+                exit 1
+                ;;
+            esac
+            sleep 10
+          done
+
+          echo "Timed out waiting for Maven Central deployment $DEPLOYMENT_ID" >&2
+          exit 1
 
       - name: Collect JARs for GitHub Release
         run: |
