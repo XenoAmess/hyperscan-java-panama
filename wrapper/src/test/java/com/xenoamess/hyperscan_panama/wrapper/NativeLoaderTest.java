@@ -48,15 +48,19 @@ class NativeLoaderTest {
         }
     }
 
-    private static int readHotSpotOption(String option) throws Exception {
-        Object value = ManagementFactory.getPlatformMBeanServer().invoke(
-                new ObjectName("com.sun.management:type=HotSpotDiagnostic"),
-                "getVMOption",
-                new Object[]{option},
-                new String[]{String.class.getName()}
-        );
-        Object optionValue = ((CompositeData) value).get("value");
-        return Integer.parseInt(optionValue.toString());
+    private static int readHotSpotOption(String option) {
+        try {
+            Object value = ManagementFactory.getPlatformMBeanServer().invoke(
+                    new ObjectName("com.sun.management:type=HotSpotDiagnostic"),
+                    "getVMOption",
+                    new Object[]{option},
+                    new String[]{String.class.getName()}
+            );
+            Object optionValue = ((CompositeData) value).get("value");
+            return Integer.parseInt(optionValue.toString());
+        } catch (Exception ignored) {
+            return -1;
+        }
     }
 
     private static void restoreProperty(String name, String value) {
