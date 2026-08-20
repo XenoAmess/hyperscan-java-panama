@@ -7,6 +7,8 @@
 - [FFM / Panama 绑定](./panama-ffm/)
   - [数据库序列化往返踩坑](./panama-ffm/serialization-roundtrip.md)
   - [指针输出参数处理模式](./panama-ffm/pointer-output-arguments.md)
+  - [Native 生命周期与 FFM 回调边界](./panama-ffm/native-lifecycle-and-upcalls.md)
+  - [Windows ISA 自动选择](./panama-ffm/windows-isa-detection.md)
 - [Native 构建](./native-build/)
 
 ## 写作规范

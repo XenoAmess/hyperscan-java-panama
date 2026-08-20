@@ -80,7 +80,6 @@ public class Scanner implements Closeable {
     }
 
     private static final class CallbackContext {
-        Database db;
         Expression[] expressionsById;
         Database.IntExpressionMap sparseExpressions;
         ByteMatchEventHandler byteHandler;
@@ -88,38 +87,55 @@ public class Scanner implements Closeable {
         RawMatchEventHandler rawHandler;
         ByteCharMapping mapping;
         boolean inUse;
+        Throwable callbackFailure;
+        StreamState streamState;
     }
 
     private static final ThreadLocal<CallbackContext> ACTIVE_CONTEXT = ThreadLocal.withInitial(CallbackContext::new);
 
+    private static CallbackContext requireIdleCallbackContext() {
+        CallbackContext ctx = ACTIVE_CONTEXT.get();
+        if (ctx.inUse) {
+            throw new IllegalStateException("Recursive scanning is not supported.");
+        }
+        return ctx;
+    }
+
     private static final MemorySegment MATCH_HANDLER = JNI.allocateMatchEventHandler(
             (id, from, to, flags) -> {
                 CallbackContext ctx = ACTIVE_CONTEXT.get();
-                if (ctx.rawHandler != null) {
-                    return ctx.rawHandler.onMatch(id, from, to, flags) ? 0 : -1;
-                }
-                Expression expression = null;
-                Expression[] byId = ctx.expressionsById;
-                if (id >= 0 && id < byId.length) {
-                    expression = byId[id];
-                } else if (ctx.sparseExpressions != null) {
-                    expression = ctx.sparseExpressions.get(id);
-                }
-                if (expression == null) {
-                    return 0;
-                }
-                if (ctx.byteHandler != null) {
-                    return ctx.byteHandler.onMatch(expression, from, to) ? 0 : -1;
-                }
-                if (ctx.stringHandler != null) {
-                    long fromStringIndex = ctx.mapping != null ? ctx.mapping.getCharIndex((int) from) : from;
-                    long toStringIndex = 0;
-                    if (to > 0) {
-                        toStringIndex = ctx.mapping != null ? ctx.mapping.getCharIndex((int) (to - 1)) : to - 1;
+                try {
+                    if (ctx.rawHandler != null) {
+                        return ctx.rawHandler.onMatch(id, from, to, flags) ? 0 : -1;
                     }
-                    return ctx.stringHandler.onMatch(expression, fromStringIndex, toStringIndex) ? 0 : -1;
+                    Expression expression = null;
+                    Expression[] byId = ctx.expressionsById;
+                    if (id >= 0 && id < byId.length) {
+                        expression = byId[id];
+                    } else if (ctx.sparseExpressions != null) {
+                        expression = ctx.sparseExpressions.get(id);
+                    }
+                    if (expression == null) {
+                        return 0;
+                    }
+                    if (ctx.byteHandler != null) {
+                        return ctx.byteHandler.onMatch(expression, from, to) ? 0 : -1;
+                    }
+                    if (ctx.stringHandler != null) {
+                        long fromStringIndex = ctx.mapping != null ? ctx.mapping.getCharIndex((int) from) : from;
+                        long toStringIndex = 0;
+                        if (to > 0) {
+                            toStringIndex = ctx.mapping != null ? ctx.mapping.getCharIndex((int) (to - 1)) : to - 1;
+                        }
+                        return ctx.stringHandler.onMatch(expression, fromStringIndex, toStringIndex) ? 0 : -1;
+                    }
+                    return 0;
+                } catch (Throwable failure) {
+                    if (ctx.callbackFailure == null) {
+                        ctx.callbackFailure = failure;
+                    }
+                    return -1;
                 }
-                return 0;
             }, CALLBACK_ARENA);
 
     private static final RawMatchEventHandler TERMINATION_HANDLER = (expressionId, fromByteIdx, toByteIdx, flags) -> false;
@@ -131,27 +147,83 @@ public class Scanner implements Closeable {
 
     private static class State implements Runnable {
         private volatile MemorySegment scratch;
+        private int openStreams;
+        private int activeOperations;
 
         State() {
             this.scratch = MemorySegment.NULL;
         }
 
-        MemorySegment getScratch() {
+        synchronized MemorySegment getScratch() {
             if (scratch == null) {
                 throw new IllegalStateException("Scratch space has already been deallocated");
             }
             return scratch;
         }
 
-        void setScratch(MemorySegment scratch) {
+        synchronized void setScratch(MemorySegment scratch) {
+            if (this.scratch == null) {
+                throw new IllegalStateException("Scratch space has already been deallocated");
+            }
             this.scratch = scratch;
         }
 
+        synchronized void requireScratchReallocationAllowed() {
+            if (activeOperations != 0) {
+                throw new IllegalStateException("Scanner is in use by an active operation");
+            }
+        }
+
+        synchronized void acquireStream() {
+            getScratch();
+            openStreams++;
+        }
+
+        synchronized MemorySegment acquireOperation() {
+            MemorySegment scratch = getScratch();
+            activeOperations++;
+            return scratch;
+        }
+
+        synchronized void releaseStream() {
+            if (openStreams == 0) {
+                throw new IllegalStateException("Scanner stream lease is not held");
+            }
+            openStreams--;
+        }
+
+        synchronized void releaseOperation() {
+            if (activeOperations == 0) {
+                throw new IllegalStateException("Scanner operation lease is not held");
+            }
+            activeOperations--;
+        }
+
+        synchronized void close() {
+            if (scratch == null) {
+                return;
+            }
+            if (openStreams != 0) {
+                throw new IllegalStateException("Scanner is in use by an open stream");
+            }
+            if (activeOperations != 0) {
+                throw new IllegalStateException("Scanner is in use by an active operation");
+            }
+            if (scratch.address() != 0) {
+                int result = JNI.hsFreeScratch(scratch);
+                if (result != JNI.hsSuccess()) {
+                    throw HyperscanException.hsErrorToException(result);
+                }
+            }
+            scratch = null;
+        }
+
         @Override
-        public synchronized void run() {
-            if (scratch != null && scratch.address() != 0) {
-                JNI.hsFreeScratch(scratch);
-                scratch = null;
+        public void run() {
+            try {
+                close();
+            } catch (Throwable ignored) {
+                // Cleaner cleanup is best-effort; explicit close preserves the handle for retry.
             }
         }
     }
@@ -173,37 +245,49 @@ public class Scanner implements Closeable {
     }
 
     public long getSize() {
-        MemorySegment scratch = state.getScratch();
-        MemorySegment size = SCRATCH_SIZE_BUFFER.get();
-        int hsError = JNI.hsScratchSize(scratch, size);
-        if (hsError != 0) {
-            throw HyperscanException.hsErrorToException(hsError);
+        MemorySegment scratch = state.acquireOperation();
+        try {
+            MemorySegment size = SCRATCH_SIZE_BUFFER.get();
+            int hsError = JNI.hsScratchSize(scratch, size);
+            if (hsError != 0) {
+                throw HyperscanException.hsErrorToException(hsError);
+            }
+            return JNI.readSize_t(size, 0);
+        } finally {
+            state.releaseOperation();
+            java.lang.ref.Reference.reachabilityFence(this);
         }
-        return JNI.readSize_t(size, 0);
     }
 
     public void allocScratch(final Database db) {
-        synchronized (state) {
-            MemorySegment currentScratch = state.getScratch();
-            try (Arena arena = Arena.ofConfined()) {
-                MemorySegment scratchOut = arena.allocate(ValueLayout.ADDRESS);
-                if (currentScratch.address() != 0) {
-                    scratchOut.set(ValueLayout.ADDRESS, 0, currentScratch);
+        MemorySegment database = db.acquireOperation();
+        try {
+            synchronized (state) {
+                state.requireScratchReallocationAllowed();
+                MemorySegment currentScratch = state.getScratch();
+                try (Arena arena = Arena.ofConfined()) {
+                    MemorySegment scratchOut = arena.allocate(ValueLayout.ADDRESS);
+                    if (currentScratch.address() != 0) {
+                        scratchOut.set(ValueLayout.ADDRESS, 0, currentScratch);
+                    }
+                    int hsError = JNI.hsAllocScratch(database, scratchOut);
+                    state.setScratch(scratchOut.get(ValueLayout.ADDRESS, 0));
+                    if (hsError != 0) {
+                        throw HyperscanException.hsErrorToException(hsError);
+                    }
                 }
-                int hsError = JNI.hsAllocScratch(db.getDatabase(), scratchOut);
-                if (hsError != 0) {
-                    throw HyperscanException.hsErrorToException(hsError);
-                }
-                state.setScratch(scratchOut.get(ValueLayout.ADDRESS, 0));
             }
+        } finally {
+            db.releaseOperation();
+            java.lang.ref.Reference.reachabilityFence(db);
+            java.lang.ref.Reference.reachabilityFence(this);
         }
     }
 
     public List<Match> scan(final Database db, final String input) {
         final ArrayList<Match> matches = new ArrayList<>();
 
-        CallbackContext ctx = ACTIVE_CONTEXT.get();
-        ctx.db = db;
+        CallbackContext ctx = requireIdleCallbackContext();
         ctx.stringHandler = (expression, fromStringIndexLong, toStringIndexLong) -> {
             if (expression.getFlags().contains(ExpressionFlag.SOM_LEFTMOST)) {
                 matches.add(new Match(input, (int) fromStringIndexLong, (int) toStringIndexLong, expression));
@@ -229,8 +313,7 @@ public class Scanner implements Closeable {
     }
 
     public void scan(final Database db, final String input, StringMatchEventHandler eventHandler) {
-        CallbackContext ctx = ACTIVE_CONTEXT.get();
-        ctx.db = db;
+        CallbackContext ctx = requireIdleCallbackContext();
         ctx.stringHandler = eventHandler;
         ctx.byteHandler = null;
         ctx.rawHandler = null;
@@ -248,8 +331,7 @@ public class Scanner implements Closeable {
     }
 
     public void scan(final Database db, final byte[] input, ByteMatchEventHandler eventHandler) {
-        CallbackContext ctx = ACTIVE_CONTEXT.get();
-        ctx.db = db;
+        CallbackContext ctx = requireIdleCallbackContext();
         ctx.byteHandler = eventHandler;
         ctx.stringHandler = null;
         ctx.rawHandler = null;
@@ -258,8 +340,7 @@ public class Scanner implements Closeable {
     }
 
     public void scan(final Database db, final ByteBuffer input, ByteMatchEventHandler eventHandler) {
-        CallbackContext ctx = ACTIVE_CONTEXT.get();
-        ctx.db = db;
+        CallbackContext ctx = requireIdleCallbackContext();
         ctx.byteHandler = eventHandler;
         ctx.stringHandler = null;
         ctx.rawHandler = null;
@@ -277,8 +358,7 @@ public class Scanner implements Closeable {
     }
 
     public void scan(final Database db, final MemorySegment input, final int length, ByteMatchEventHandler eventHandler) {
-        CallbackContext ctx = ACTIVE_CONTEXT.get();
-        ctx.db = db;
+        CallbackContext ctx = requireIdleCallbackContext();
         ctx.byteHandler = eventHandler;
         ctx.stringHandler = null;
         ctx.rawHandler = null;
@@ -365,27 +445,35 @@ public class Scanner implements Closeable {
     }
 
     private int scanRaw(final Database db, final MemorySegment data, final int length) {
-        CallbackContext ctx = ACTIVE_CONTEXT.get();
-        if (ctx.inUse) {
-            throw new IllegalStateException("Recursive scanning is not supported.");
-        }
+        CallbackContext ctx = requireIdleCallbackContext();
 
         ctx.inUse = true;
-        ctx.expressionsById = db.getExpressionsById();
-        ctx.sparseExpressions = db.getSparseExpressions();
-
+        boolean databaseLease = false;
+        boolean scratchLease = false;
         try {
-            MemorySegment database = db.getDatabase();
-            MemorySegment scratch = state.getScratch();
+            ctx.callbackFailure = null;
+            ctx.expressionsById = db.getExpressionsById();
+            ctx.sparseExpressions = db.getSparseExpressions();
+            MemorySegment database = db.acquireOperation();
+            databaseLease = true;
+            MemorySegment scratch = state.acquireOperation();
+            scratchLease = true;
             if (scratch.address() == 0) {
                 throw new IllegalStateException("Scratch space has not been allocated. Call allocScratch() before scanning.");
             }
             int hsError = JNI.hsScan(database, data, length, 0, scratch, MATCH_HANDLER, MemorySegment.NULL);
+            propagateCallbackFailure(ctx);
             if (hsError != 0 && hsError != JNI.hsScanTerminated()) {
                 throw HyperscanException.hsErrorToException(hsError);
             }
             return hsError;
         } finally {
+            if (scratchLease) {
+                state.releaseOperation();
+            }
+            if (databaseLease) {
+                db.releaseOperation();
+            }
             ctx.inUse = false;
             ctx.rawHandler = null;
             ctx.byteHandler = null;
@@ -393,7 +481,22 @@ public class Scanner implements Closeable {
             ctx.mapping = null;
             ctx.expressionsById = null;
             ctx.sparseExpressions = null;
+            ctx.callbackFailure = null;
+            ctx.streamState = null;
+            java.lang.ref.Reference.reachabilityFence(db);
+            java.lang.ref.Reference.reachabilityFence(this);
         }
+    }
+
+    private static void propagateCallbackFailure(CallbackContext ctx) {
+        if (ctx.callbackFailure != null) {
+            throwUnchecked(ctx.callbackFailure);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <E extends Throwable> void throwUnchecked(Throwable failure) throws E {
+        throw (E) failure;
     }
 
     private static boolean isAscii(String input) {
@@ -423,8 +526,7 @@ public class Scanner implements Closeable {
     }
 
     public boolean hasMatch(final Database db, final ByteBuffer input) {
-        CallbackContext ctx = ACTIVE_CONTEXT.get();
-        ctx.db = db;
+        CallbackContext ctx = requireIdleCallbackContext();
         ctx.rawHandler = TERMINATION_HANDLER;
         ctx.byteHandler = null;
         ctx.stringHandler = null;
@@ -434,10 +536,12 @@ public class Scanner implements Closeable {
     }
 
     public boolean hasMatch(final Database db, final byte[] input) {
+        requireIdleCallbackContext();
         return hasMatch(db, input, 0, input.length);
     }
 
     public boolean hasMatch(final Database db, final String input) {
+        requireIdleCallbackContext();
         if (isAscii(input)) {
             return hasMatch(db, getAsciiSegment(input), input.length());
         }
@@ -447,8 +551,7 @@ public class Scanner implements Closeable {
     }
 
     private boolean hasMatch(final Database db, final MemorySegment data, final int length) {
-        CallbackContext ctx = ACTIVE_CONTEXT.get();
-        ctx.db = db;
+        CallbackContext ctx = requireIdleCallbackContext();
         ctx.rawHandler = TERMINATION_HANDLER;
         ctx.byteHandler = null;
         ctx.stringHandler = null;
@@ -458,8 +561,7 @@ public class Scanner implements Closeable {
     }
 
     private boolean hasMatch(final Database db, final byte[] input, int offset, int length) {
-        CallbackContext ctx = ACTIVE_CONTEXT.get();
-        ctx.db = db;
+        CallbackContext ctx = requireIdleCallbackContext();
         ctx.rawHandler = TERMINATION_HANDLER;
         ctx.byteHandler = null;
         ctx.stringHandler = null;
@@ -480,6 +582,7 @@ public class Scanner implements Closeable {
      * @param eventHandler Handler to receive match events with byte indices.
      */
     public void scanVector(final Database db, final byte[][] inputs, ByteMatchEventHandler eventHandler) {
+        requireIdleCallbackContext();
         int total = 0;
         for (byte[] input : inputs) {
             total += input.length;
@@ -529,6 +632,7 @@ public class Scanner implements Closeable {
      * @param eventHandler Handler to receive match events with byte indices.
      */
     public void scanVector(final Database db, final ByteBuffer[] inputs, ByteMatchEventHandler eventHandler) {
+        requireIdleCallbackContext();
         int heapTotal = 0;
         for (ByteBuffer input : inputs) {
             if (!input.isDirect()) {
@@ -571,29 +675,38 @@ public class Scanner implements Closeable {
         if (db.getMode() != null && db.getMode() != Mode.VECTORED) {
             throw new IllegalArgumentException("Vectored scanning requires a database compiled with Mode.VECTORED");
         }
-        CallbackContext ctx = ACTIVE_CONTEXT.get();
-        if (ctx.inUse) {
-            throw new IllegalStateException("Recursive scanning is not supported.");
-        }
+        CallbackContext ctx = requireIdleCallbackContext();
         ctx.inUse = true;
-        ctx.db = db;
-        ctx.byteHandler = eventHandler;
-        ctx.stringHandler = null;
-        ctx.rawHandler = null;
-        ctx.mapping = null;
-        ctx.expressionsById = db.getExpressionsById();
-        ctx.sparseExpressions = db.getSparseExpressions();
+        boolean databaseLease = false;
+        boolean scratchLease = false;
         try {
-            MemorySegment scratch = state.getScratch();
+            ctx.callbackFailure = null;
+            ctx.byteHandler = eventHandler;
+            ctx.stringHandler = null;
+            ctx.rawHandler = null;
+            ctx.mapping = null;
+            ctx.expressionsById = db.getExpressionsById();
+            ctx.sparseExpressions = db.getSparseExpressions();
+            MemorySegment database = db.acquireOperation();
+            databaseLease = true;
+            MemorySegment scratch = state.acquireOperation();
+            scratchLease = true;
             if (scratch.address() == 0) {
                 throw new IllegalStateException("Scratch space has not been allocated. Call allocScratch() before scanning.");
             }
-            int hsError = JNI.hsScanVector(db.getDatabase(), dataPtrs, lengthSeg, count, 0, scratch, MATCH_HANDLER, MemorySegment.NULL);
+            int hsError = JNI.hsScanVector(database, dataPtrs, lengthSeg, count, 0, scratch, MATCH_HANDLER, MemorySegment.NULL);
+            propagateCallbackFailure(ctx);
             if (hsError != 0 && hsError != JNI.hsScanTerminated()) {
                 throw HyperscanException.hsErrorToException(hsError);
             }
             return hsError;
         } finally {
+            if (scratchLease) {
+                state.releaseOperation();
+            }
+            if (databaseLease) {
+                db.releaseOperation();
+            }
             ctx.inUse = false;
             ctx.rawHandler = null;
             ctx.byteHandler = null;
@@ -601,6 +714,10 @@ public class Scanner implements Closeable {
             ctx.mapping = null;
             ctx.expressionsById = null;
             ctx.sparseExpressions = null;
+            ctx.callbackFailure = null;
+            ctx.streamState = null;
+            java.lang.ref.Reference.reachabilityFence(db);
+            java.lang.ref.Reference.reachabilityFence(this);
         }
     }
 
@@ -620,16 +737,52 @@ public class Scanner implements Closeable {
         if (db.getMode() != null && db.getMode() != Mode.STREAM) {
             throw new IllegalArgumentException("Streaming requires a database compiled with Mode.STREAM");
         }
-        MemorySegment nativeStream;
-        try (Arena arena = Arena.ofConfined()) {
-            MemorySegment streamOut = arena.allocate(ValueLayout.ADDRESS);
-            int hsError = JNI.hsOpenStream(db.getDatabase(), 0, streamOut);
-            if (hsError != 0) {
-                throw HyperscanException.hsErrorToException(hsError);
+        state.acquireStream();
+        boolean databaseLease = false;
+        boolean transferred = false;
+        boolean nativeOpened = false;
+        MemorySegment nativeStream = MemorySegment.NULL;
+        try {
+            MemorySegment database = db.acquireStream();
+            databaseLease = true;
+            try (Arena arena = Arena.ofConfined()) {
+                MemorySegment streamOut = arena.allocate(ValueLayout.ADDRESS);
+                int hsError = JNI.hsOpenStream(database, 0, streamOut);
+                if (hsError != 0) {
+                    throw HyperscanException.hsErrorToException(hsError);
+                }
+                nativeOpened = true;
+                nativeStream = streamOut.get(ValueLayout.ADDRESS, 0);
             }
-            nativeStream = streamOut.get(ValueLayout.ADDRESS, 0);
+            Stream result = new Stream(db, nativeStream);
+            transferred = true;
+            return result;
+        } finally {
+            if (!transferred) {
+                boolean releaseLeases = !nativeOpened;
+                if (nativeOpened && nativeStream.address() != 0) {
+                    try {
+                        int result = JNI.hsCloseStream(
+                                nativeStream, MemorySegment.NULL, MemorySegment.NULL, MemorySegment.NULL);
+                        releaseLeases = isStreamConsumed(result);
+                    } catch (Throwable ignored) {
+                        // Keep both owners leased if rollback cannot prove the stream was consumed.
+                    }
+                }
+                if (releaseLeases && databaseLease) {
+                    db.releaseStream();
+                }
+                if (releaseLeases) {
+                    state.releaseStream();
+                }
+            }
         }
-        return new Stream(db, nativeStream);
+    }
+
+    private static boolean isStreamConsumed(int result) {
+        // Both supported native versions free the stream before returning
+        // HS_UNKNOWN_ERROR from hs_close_stream.
+        return result == JNI.hsSuccess() || result == JNI.hsUnknownError();
     }
 
     /**
@@ -640,13 +793,81 @@ public class Scanner implements Closeable {
      * spanning chunk boundaries are matched transparently.
      * Not thread-safe; the stream shares the owning scanner's scratch space.
      */
+    private static final class StreamState implements Runnable {
+        private final Database database;
+        private final Scanner scanner;
+        private MemorySegment nativeStream;
+        private boolean leasesReleased;
+
+        private StreamState(Database database, Scanner scanner, MemorySegment nativeStream) {
+            this.database = database;
+            this.scanner = scanner;
+            this.nativeStream = nativeStream;
+        }
+
+        synchronized MemorySegment requireOpen() {
+            if (nativeStream == null) {
+                throw new IllegalStateException("Stream is already closed");
+            }
+            return nativeStream;
+        }
+
+        synchronized boolean isClosed() {
+            return nativeStream == null;
+        }
+
+        synchronized int close(MemorySegment scratch, MemorySegment handler) {
+            MemorySegment stream = requireOpen();
+            int result = JNI.hsCloseStream(stream, scratch, handler, MemorySegment.NULL);
+            if (isStreamConsumed(result)) {
+                nativeStream = null;
+                releaseLeases();
+            }
+            return result;
+        }
+
+        private void releaseLeases() {
+            if (leasesReleased) {
+                return;
+            }
+            database.releaseStream();
+            scanner.state.releaseStream();
+            leasesReleased = true;
+        }
+
+        @Override
+        public synchronized void run() {
+            if (nativeStream == null) {
+                return;
+            }
+            int result;
+            try {
+                result = JNI.hsCloseStream(
+                        nativeStream, MemorySegment.NULL, MemorySegment.NULL, MemorySegment.NULL);
+            } catch (Throwable ignored) {
+                // Best-effort fallback for an abandoned stream.
+                return;
+            }
+            if (isStreamConsumed(result)) {
+                nativeStream = null;
+                try {
+                    releaseLeases();
+                } catch (Throwable ignored) {
+                    // Cleaner actions cannot report ownership invariant failures.
+                }
+            }
+        }
+    }
+
     public class Stream implements Closeable {
         private final Database database;
-        private MemorySegment nativeStream;
+        private final StreamState streamState;
+        private final java.lang.ref.Cleaner.Cleanable cleanable;
 
         private Stream(final Database database, final MemorySegment nativeStream) {
             this.database = database;
-            this.nativeStream = nativeStream;
+            this.streamState = new StreamState(database, Scanner.this, nativeStream);
+            this.cleanable = CLEANER.register(this, streamState);
         }
 
         /**
@@ -656,6 +877,7 @@ public class Scanner implements Closeable {
          * @param eventHandler Handler to receive match events with byte indices.
          */
         public void scan(final byte[] input, ByteMatchEventHandler eventHandler) {
+            requireIdleCallbackContext();
             ensureOpen();
             MemorySegment data = getScanBuffer(input, 0, input.length);
             scanStreamRaw(data, input.length, eventHandler);
@@ -671,6 +893,7 @@ public class Scanner implements Closeable {
          * @param eventHandler Handler to receive match events with byte indices.
          */
         public void scan(final ByteBuffer input, ByteMatchEventHandler eventHandler) {
+            requireIdleCallbackContext();
             ensureOpen();
             int position = input.position();
             int length = input.remaining();
@@ -685,14 +908,20 @@ public class Scanner implements Closeable {
          * Closes the stream and discards any pending matches.
          */
         @Override
-        public void close() {
-            if (nativeStream != null) {
-                MemorySegment stream = nativeStream;
-                nativeStream = null;
-                int hsError = JNI.hsCloseStream(stream, state.getScratch(), MemorySegment.NULL, MemorySegment.NULL);
-                if (hsError != 0 && hsError != JNI.hsScanTerminated()) {
-                    throw HyperscanException.hsErrorToException(hsError);
-                }
+        public synchronized void close() {
+            CallbackContext ctx = ACTIVE_CONTEXT.get();
+            if (ctx.inUse && ctx.streamState == streamState) {
+                throw new IllegalStateException("A stream cannot be closed from its own callback.");
+            }
+            if (streamState.isClosed()) {
+                return;
+            }
+            int hsError = streamState.close(MemorySegment.NULL, MemorySegment.NULL);
+            if (streamState.isClosed()) {
+                cleanable.clean();
+            }
+            if (hsError != JNI.hsSuccess()) {
+                throw HyperscanException.hsErrorToException(hsError);
             }
         }
 
@@ -702,76 +931,102 @@ public class Scanner implements Closeable {
          *
          * @param eventHandler Handler to receive trailing match events.
          */
-        public void close(final ByteMatchEventHandler eventHandler) {
-            if (nativeStream == null) {
+        public synchronized void close(final ByteMatchEventHandler eventHandler) {
+            if (eventHandler == null) {
+                close();
                 return;
             }
-            CallbackContext ctx = ACTIVE_CONTEXT.get();
-            if (ctx.inUse) {
-                throw new IllegalStateException("Recursive scanning is not supported.");
+            if (streamState.isClosed()) {
+                return;
             }
+            CallbackContext ctx = requireIdleCallbackContext();
             ctx.inUse = true;
-            ctx.db = database;
-            ctx.byteHandler = eventHandler;
-            ctx.stringHandler = null;
-            ctx.rawHandler = null;
-            ctx.mapping = null;
-            ctx.expressionsById = database.getExpressionsById();
-            ctx.sparseExpressions = database.getSparseExpressions();
-            MemorySegment stream = nativeStream;
-            nativeStream = null;
+            boolean scratchLease = false;
             try {
-                int hsError = JNI.hsCloseStream(stream, state.getScratch(), MATCH_HANDLER, MemorySegment.NULL);
-                if (hsError != 0 && hsError != JNI.hsScanTerminated()) {
+                ctx.callbackFailure = null;
+                ctx.streamState = streamState;
+                ctx.byteHandler = eventHandler;
+                ctx.stringHandler = null;
+                ctx.rawHandler = null;
+                ctx.mapping = null;
+                ctx.expressionsById = database.getExpressionsById();
+                ctx.sparseExpressions = database.getSparseExpressions();
+                MemorySegment scratch = state.acquireOperation();
+                scratchLease = true;
+                int hsError = streamState.close(scratch, MATCH_HANDLER);
+                if (streamState.isClosed()) {
+                    cleanable.clean();
+                }
+                propagateCallbackFailure(ctx);
+                if (hsError != JNI.hsSuccess()) {
                     throw HyperscanException.hsErrorToException(hsError);
                 }
             } finally {
+                if (scratchLease) {
+                    state.releaseOperation();
+                }
                 ctx.inUse = false;
                 ctx.byteHandler = null;
+                ctx.stringHandler = null;
+                ctx.rawHandler = null;
+                ctx.mapping = null;
                 ctx.expressionsById = null;
                 ctx.sparseExpressions = null;
+                ctx.callbackFailure = null;
+                ctx.streamState = null;
+                java.lang.ref.Reference.reachabilityFence(this);
             }
         }
 
         private void scanStreamRaw(final MemorySegment data, final int length, ByteMatchEventHandler eventHandler) {
-            CallbackContext ctx = ACTIVE_CONTEXT.get();
-            if (ctx.inUse) {
-                throw new IllegalStateException("Recursive scanning is not supported.");
-            }
+            CallbackContext ctx = requireIdleCallbackContext();
             ctx.inUse = true;
-            ctx.db = database;
-            ctx.byteHandler = eventHandler;
-            ctx.stringHandler = null;
-            ctx.rawHandler = null;
-            ctx.mapping = null;
-            ctx.expressionsById = database.getExpressionsById();
-            ctx.sparseExpressions = database.getSparseExpressions();
+            boolean scratchLease = false;
             try {
-                MemorySegment scratch = state.getScratch();
+                ctx.callbackFailure = null;
+                ctx.streamState = streamState;
+                ctx.byteHandler = eventHandler;
+                ctx.stringHandler = null;
+                ctx.rawHandler = null;
+                ctx.mapping = null;
+                ctx.expressionsById = database.getExpressionsById();
+                ctx.sparseExpressions = database.getSparseExpressions();
+                MemorySegment scratch = state.acquireOperation();
+                scratchLease = true;
                 if (scratch.address() == 0) {
                     throw new IllegalStateException("Scratch space has not been allocated. Call allocScratch() before scanning.");
                 }
-                int hsError = JNI.hsScanStream(nativeStream, data, length, 0, scratch, MATCH_HANDLER, MemorySegment.NULL);
+                int hsError = JNI.hsScanStream(
+                        streamState.requireOpen(), data, length, 0, scratch, MATCH_HANDLER, MemorySegment.NULL);
+                propagateCallbackFailure(ctx);
                 if (hsError != 0 && hsError != JNI.hsScanTerminated()) {
                     throw HyperscanException.hsErrorToException(hsError);
                 }
             } finally {
+                if (scratchLease) {
+                    state.releaseOperation();
+                }
                 ctx.inUse = false;
                 ctx.byteHandler = null;
+                ctx.stringHandler = null;
+                ctx.rawHandler = null;
+                ctx.mapping = null;
                 ctx.expressionsById = null;
                 ctx.sparseExpressions = null;
+                ctx.callbackFailure = null;
+                ctx.streamState = null;
+                java.lang.ref.Reference.reachabilityFence(this);
             }
         }
 
         private void ensureOpen() {
-            if (nativeStream == null) {
-                throw new IllegalStateException("Stream is already closed");
-            }
+            streamState.requireOpen();
         }
     }
 
     @Override
     public void close() throws IOException {
+        state.close();
         cleanable.clean();
     }
 }

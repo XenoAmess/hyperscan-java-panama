@@ -4,6 +4,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -152,5 +153,88 @@ class StreamTest {
         assertThrows(IllegalArgumentException.class,
                 () -> scanner.scanVector(streamDb, new byte[][]{"x".getBytes(StandardCharsets.UTF_8)},
                         (expression, from, to) -> true));
+    }
+
+    @Test
+    void openStreamKeepsDatabaseAndScannerAlive() {
+        Scanner.Stream stream = scanner.openStream(streamDb);
+
+        assertThrows(IllegalStateException.class, streamDb::close);
+        assertThrows(IllegalStateException.class, scanner::close);
+
+        stream.close();
+        assertDoesNotThrow(streamDb::close);
+        assertDoesNotThrow(scanner::close);
+    }
+
+    @Test
+    void openStreamAfterScannerCloseThrows() throws IOException {
+        scanner.close();
+
+        assertThrows(IllegalStateException.class, () -> scanner.openStream(streamDb));
+    }
+
+    @Test
+    void vectoredCallbackExceptionIsRethrown() {
+        RuntimeException failure = new RuntimeException("vectored callback failed");
+
+        RuntimeException thrown = assertThrows(RuntimeException.class, () -> scanner.scanVector(
+                vectorDb,
+                new byte[][]{"hello".getBytes(StandardCharsets.UTF_8)},
+                (expression, from, to) -> {
+                    throw failure;
+                }));
+
+        assertSame(failure, thrown);
+    }
+
+    @Test
+    void streamCallbackExceptionIsRethrown() {
+        RuntimeException failure = new RuntimeException("stream callback failed");
+        try (Scanner.Stream stream = scanner.openStream(streamDb)) {
+            RuntimeException thrown = assertThrows(RuntimeException.class, () -> stream.scan(
+                    "test".getBytes(StandardCharsets.UTF_8),
+                    (expression, from, to) -> {
+                        throw failure;
+                    }));
+
+            assertSame(failure, thrown);
+        }
+    }
+
+    @Test
+    void streamCannotCloseItselfFromCallback() {
+        Scanner.Stream stream = scanner.openStream(streamDb);
+
+        IllegalStateException thrown = assertThrows(IllegalStateException.class, () -> stream.scan(
+                "test".getBytes(StandardCharsets.UTF_8),
+                (expression, from, to) -> {
+                    stream.close();
+                    return true;
+                }));
+
+        assertThat(thrown).hasMessageContaining("own callback");
+        assertDoesNotThrow(() -> stream.close());
+    }
+
+    @Test
+    void streamCloseCallbackExceptionStillClosesStream() throws CompileErrorException, IOException {
+        RuntimeException failure = new RuntimeException("stream close callback failed");
+        try (Database db = Database.compile(new Expression("c$", 0), Mode.STREAM);
+             Scanner localScanner = new Scanner()) {
+            localScanner.allocScratch(db);
+            Scanner.Stream stream = localScanner.openStream(db);
+            stream.scan("abc".getBytes(StandardCharsets.UTF_8), (expression, from, to) -> true);
+
+            RuntimeException thrown = assertThrows(RuntimeException.class, () -> stream.close(
+                    (expression, from, to) -> {
+                        throw failure;
+                    }));
+
+            assertSame(failure, thrown);
+            assertDoesNotThrow(() -> stream.close());
+            assertDoesNotThrow(db::close);
+            assertDoesNotThrow(localScanner::close);
+        }
     }
 }

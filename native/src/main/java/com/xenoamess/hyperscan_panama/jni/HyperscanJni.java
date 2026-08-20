@@ -18,6 +18,9 @@ public interface HyperscanJni {
     // Constants
     // ------------------------------------------------------------------
     int hsSuccess();
+    int hsInvalid();
+    int hsScratchInUse();
+    int hsUnknownError();
     int hsCompilerError();
     int hsScanTerminated();
     int hsModeBlock();

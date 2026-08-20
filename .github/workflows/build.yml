@@ -270,6 +270,14 @@ jobs:
           mvn -B verify -pl wrapper \
             -Dnative.classifier=${{ matrix.platform }}
 
+      - name: Verify Windows baseline selection
+        if: runner.os == 'Windows'
+        run: |
+          mvn -B test -pl wrapper \
+            -Dnative.classifier=${{ matrix.platform }} \
+            -Dtest=NativeLoaderTest#windowsSelectionUsesHotSpotUseAvx \
+            -DargLine="-XX:UseAVX=1 --enable-native-access=ALL-UNNAMED"
+
       - name: Upload wrapper coverage report
         if: always()
         uses: actions/upload-artifact@v7

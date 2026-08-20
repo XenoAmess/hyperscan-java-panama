@@ -25,6 +25,21 @@ public final class HyperscanJniImpl implements HyperscanJni {
     }
 
     @Override
+    public int hsInvalid() {
+        return hyperscan.HS_INVALID();
+    }
+
+    @Override
+    public int hsScratchInUse() {
+        return hyperscan.HS_SCRATCH_IN_USE();
+    }
+
+    @Override
+    public int hsUnknownError() {
+        return hyperscan.HS_UNKNOWN_ERROR();
+    }
+
+    @Override
     public int hsCompilerError() {
         return hyperscan.HS_COMPILER_ERROR();
     }

@@ -43,6 +43,8 @@ public class Database implements Closeable {
 
     private static class State implements Runnable {
         private volatile MemorySegment database;
+        private int openStreams;
+        private int activeOperations;
 
         State(MemorySegment database) {
             this.database = database;
@@ -56,12 +58,56 @@ public class Database implements Closeable {
             return database;
         }
 
-        @Override
-        public synchronized void run() {
+        synchronized MemorySegment acquireStream() {
+            MemorySegment database = getDatabase();
+            openStreams++;
+            return database;
+        }
+
+        synchronized MemorySegment acquireOperation() {
+            MemorySegment database = getDatabase();
+            activeOperations++;
+            return database;
+        }
+
+        synchronized void releaseStream() {
+            if (openStreams == 0) {
+                throw new IllegalStateException("Database stream lease is not held");
+            }
+            openStreams--;
+        }
+
+        synchronized void releaseOperation() {
+            if (activeOperations == 0) {
+                throw new IllegalStateException("Database operation lease is not held");
+            }
+            activeOperations--;
+        }
+
+        synchronized void close() {
             MemorySegment database = this.database;
-            if (database != null) {
-                this.database = null;
-                JNI.hsFreeDatabase(database);
+            if (database == null) {
+                return;
+            }
+            if (openStreams != 0) {
+                throw new IllegalStateException("Database is in use by an open stream");
+            }
+            if (activeOperations != 0) {
+                throw new IllegalStateException("Database is in use by an active operation");
+            }
+            int result = JNI.hsFreeDatabase(database);
+            if (result != JNI.hsSuccess()) {
+                throw HyperscanException.hsErrorToException(result);
+            }
+            this.database = null;
+        }
+
+        @Override
+        public void run() {
+            try {
+                close();
+            } catch (Throwable ignored) {
+                // Cleaner cleanup is best-effort; explicit close preserves the handle for retry.
             }
         }
     }
@@ -310,19 +356,40 @@ public class Database implements Closeable {
         return state.getDatabase();
     }
 
+    MemorySegment acquireStream() {
+        return state.acquireStream();
+    }
+
+    MemorySegment acquireOperation() {
+        return state.acquireOperation();
+    }
+
+    void releaseStream() {
+        state.releaseStream();
+    }
+
+    void releaseOperation() {
+        state.releaseOperation();
+    }
+
     /**
      * Get the database size in bytes
      *
      * @return count of bytes
      */
     public long getSize() {
-        MemorySegment database = state.getDatabase();
-        MemorySegment size = SIZE_BUFFER.get();
-        int hsError = JNI.hsDatabaseSize(database, size);
-        if (hsError != 0) {
-            throw HyperscanException.hsErrorToException(hsError);
+        MemorySegment database = state.acquireOperation();
+        try {
+            MemorySegment size = SIZE_BUFFER.get();
+            int hsError = JNI.hsDatabaseSize(database, size);
+            if (hsError != 0) {
+                throw HyperscanException.hsErrorToException(hsError);
+            }
+            return JNI.readSize_t(size, 0);
+        } finally {
+            state.releaseOperation();
+            java.lang.ref.Reference.reachabilityFence(this);
         }
-        return JNI.readSize_t(size, 0);
     }
 
     Expression getExpression(int id) {
@@ -370,6 +437,7 @@ public class Database implements Closeable {
 
     @Override
     public void close() {
+        state.close();
         cleanable.clean();
     }
 
@@ -422,36 +490,42 @@ public class Database implements Closeable {
         // Serialize the database into a contiguous native memory block. The native
         // library allocates the buffer and returns both the pointer and the length
         // via output parameters (char **bytes, size_t *length).
-        MemorySegment database = state.getDatabase();
-        try (Arena arena = Arena.ofConfined()) {
-            MemorySegment bytesOut = arena.allocate(ValueLayout.ADDRESS);
-            MemorySegment size = arena.allocate(JNI.size_t());
-            int hsError = JNI.hsSerializeDatabase(database, bytesOut, size);
-            if (hsError != 0) {
-                throw HyperscanException.hsErrorToException(hsError);
+        MemorySegment database = state.acquireOperation();
+        try {
+            try (Arena arena = Arena.ofConfined()) {
+                MemorySegment bytesOut = arena.allocate(ValueLayout.ADDRESS);
+                MemorySegment size = arena.allocate(JNI.size_t());
+                int hsError = JNI.hsSerializeDatabase(database, bytesOut, size);
+                if (hsError != 0) {
+                    throw HyperscanException.hsErrorToException(hsError);
+                }
+
+                long length = JNI.readSize_t(size, 0);
+                MemorySegment bytes = bytesOut.get(ValueLayout.ADDRESS, 0).reinterpret(length);
+
+                try {
+                    DataOutputStream databaseDataOut = new DataOutputStream(new BufferedOutputStream(databaseOut));
+                    databaseDataOut.writeInt((int) length);
+
+                    byte[] buffer = new byte[65536];
+                    long offset = 0;
+                    long remaining = length;
+                    while (remaining > 0) {
+                        int chunk = (int) Math.min(remaining, buffer.length);
+                        MemorySegment.copy(bytes, ValueLayout.JAVA_BYTE, offset, buffer, 0, chunk);
+                        databaseDataOut.write(buffer, 0, chunk);
+                        offset += chunk;
+                        remaining -= chunk;
+                    }
+                    databaseDataOut.flush();
+                } finally {
+                    // The library allocated the serialized buffer with its default allocator.
+                    JNI.free(bytes);
+                }
             }
-
-            long length = JNI.readSize_t(size, 0);
-            MemorySegment bytes = bytesOut.get(ValueLayout.ADDRESS, 0).reinterpret(length);
-
-            DataOutputStream databaseDataOut = new DataOutputStream(new BufferedOutputStream(databaseOut));
-            databaseDataOut.writeInt((int) length);
-
-            byte[] buffer = new byte[65536];
-            long offset = 0;
-            long remaining = length;
-            while (remaining > 0) {
-                int chunk = (int) Math.min(remaining, buffer.length);
-                MemorySegment.copy(bytes, ValueLayout.JAVA_BYTE, offset, buffer, 0, chunk);
-                databaseDataOut.write(buffer, 0, chunk);
-                offset += chunk;
-                remaining -= chunk;
-            }
-            databaseDataOut.flush();
-
-            // The library allocated the serialized buffer with its default allocator;
-            // free it with the standard C free().
-            JNI.free(bytes);
+        } finally {
+            state.releaseOperation();
+            java.lang.ref.Reference.reachabilityFence(this);
         }
     }
 

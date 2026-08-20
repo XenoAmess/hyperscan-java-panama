@@ -268,6 +268,29 @@ class ScannerTest {
     }
 
     @Test
+    void callbackCannotCloseActiveDatabaseOrScanner() {
+        IllegalStateException databaseFailure = assertThrows(IllegalStateException.class, () ->
+                scanner.scan(database, "test".getBytes(StandardCharsets.UTF_8), (expression, from, to) -> {
+                    database.close();
+                    return true;
+                }));
+        assertThat(databaseFailure).hasMessageContaining("active operation");
+        assertThat(database.getSize()).isPositive();
+
+        IllegalStateException scannerFailure = assertThrows(IllegalStateException.class, () ->
+                scanner.scan(database, "test".getBytes(StandardCharsets.UTF_8), (expression, from, to) -> {
+                    try {
+                        scanner.close();
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    }
+                    return true;
+                }));
+        assertThat(scannerFailure).hasMessageContaining("active operation");
+        assertThat(scanner.getSize()).isPositive();
+    }
+
+    @Test
     void scanBytesWithHandler_utf8_shouldFindMatch() throws CompileErrorException {
         byte[] data = "Say 你好 world".getBytes(StandardCharsets.UTF_8);
         AtomicInteger matchCount = new AtomicInteger(0);
@@ -377,8 +400,10 @@ class ScannerTest {
     void scan_recursiveCall_shouldThrowException() {
         String text = "test world";
         AtomicBoolean insideScan = new AtomicBoolean(false);
+        AtomicInteger callbackCount = new AtomicInteger();
 
         StringMatchEventHandler handler = (expression, from, to) -> {
+            callbackCount.incrementAndGet();
             if (insideScan.get()) {
                 fail("Recursive call detected unexpectedly.");
             }
@@ -396,6 +421,26 @@ class ScannerTest {
 
         // Initial scan triggers the handler
         scanner.scan(database, text, handler);
+        assertThat(callbackCount).hasValue(2);
+    }
+
+    @Test
+    void scan_invalidDatabase_shouldNotPoisonCallbackContext() {
+        assertThrows(NullPointerException.class, () -> scanner.scan(null, "test"));
+
+        assertThat(scanner.scan(database, "test")).hasSize(1);
+    }
+
+    @Test
+    void scan_callbackException_shouldBeRethrown() {
+        RuntimeException failure = new RuntimeException("callback failed");
+
+        RuntimeException thrown = assertThrows(RuntimeException.class, () -> scanner.scan(
+                database, "test", (expression, from, to) -> {
+                    throw failure;
+                }));
+
+        assertSame(failure, thrown);
     }
 
     @Test
