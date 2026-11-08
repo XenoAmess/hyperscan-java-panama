@@ -40,7 +40,7 @@ jobs:
           cache: maven
 
       - name: Download latest merged native artifacts
-        uses: dawidd6/action-download-artifact@v27
+        uses: dawidd6/action-download-artifact@v28
         with:
           workflow: build.yml
           branch: main
